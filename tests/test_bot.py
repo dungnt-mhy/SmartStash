@@ -1028,7 +1028,8 @@ class Phase1TestCase(BotTestCase):
         self.app.handle_update(message_update(ADMIN, text="/start"))
         labels = self.keyboard_labels_of(ADMIN)
         self.assertIn("⏳ Chờ duyệt", labels)
-        self.assertIn("📊 Thống kê", labels)
+        self.assertNotIn("📊 Thống kê", labels)
+        self.assertNotIn("📋 Tất cả việc", labels)
         # Owner's layout: no Users button; the last row pairs Muse's
         # status (left) with the hide-controls button (right).
         self.assertNotIn("👥 Người dùng", labels)

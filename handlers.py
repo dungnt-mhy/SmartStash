@@ -117,17 +117,17 @@ BTN_HIDE_OPS = "🙈 Ẩn thao tác"
 
 def main_keyboard(user):
     """The persistent reply keyboard for a user's role (the bot's home
-    screen). Reviewers get the review queue and statistics. The last
-    row pairs Muse's status (left) with the hide-controls button
-    (right); user management lives on the /danhsach command, not a
-    keyboard button (owner's layout, 2026-10-23)."""
+    screen). Reviewers get the review queue. The last row pairs
+    Muse's status (left) with the hide-controls button (right);
+    statistics, all-tasks and user management live on the /thongke,
+    /viec and /danhsach commands, not keyboard buttons (owner's
+    layout, 2026-10-23)."""
     last_row = [{"text": BTN_CLAUDE}, {"text": BTN_HIDE_OPS}]
     if user is None or user["role"] is None:
         rows = [last_row]
     elif roles.can_review(user["role"]):
         rows = [
             [{"text": BTN_NEW_TASK}, {"text": BTN_PENDING}],
-            [{"text": BTN_ALL_TASKS}, {"text": BTN_STATS}],
             last_row,
         ]
     else:

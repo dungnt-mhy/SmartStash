@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Bàn phím chính gọn tiếp: bỏ nút Thống kê và Tất cả việc
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo yêu cầu của chủ dự án, bàn phím vai trò người duyệt/Admin bỏ luôn hàng "📋 Tất cả việc / 📊 Thống kê" — chỉ còn [Giao việc mới | Chờ duyệt] và hàng cuối [Muse đang làm | Ẩn thao tác]. Các lệnh /viec và /thongke vẫn dùng bình thường.
+- **Trạng thái:** Đã xong. Kiểm thử 85/85 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Bố cục bàn phím chính: bỏ nút Người dùng, hàng cuối là [Muse đang làm | Ẩn thao tác]
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo yêu cầu trực tiếp của chủ dự án: bàn phím chính **bỏ hẳn nút "👥 Người dùng"** (quản lý người dùng vẫn còn qua lệnh /danhsach và các luồng cấp quyền); hàng cuối gộp thành một hàng duy nhất: **"🤖 Muse đang làm" bên trái, "🙈 Ẩn thao tác" bên phải** (nút ẩn đổi tên từ "Ẩn bàn phím" thành "Ẩn thao tác"). Áp dụng cho mọi vai trò.
