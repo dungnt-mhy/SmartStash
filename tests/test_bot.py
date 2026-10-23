@@ -428,10 +428,9 @@ class BotTestCase(unittest.TestCase):
         cards = [t for t in self.api.texts_to(CONTRIBUTOR) if task["code"] in t]
         self.assertTrue(cards)
         card = cards[0]
-        self.assertIn(f"Người tạo: User{CONTRIBUTOR}", card)
-        self.assertRegex(
-            card, r"Thời gian tạo: \d{2}:\d{2} \d{2}/\d{2}/\d{4}")
-        self.assertIn("Nơi đăng: Website • Facebook • Instagram", card)
+        self.assertIn(f"👤 User{CONTRIBUTOR}", card)
+        self.assertRegex(card, r"\d{2}:\d{2} \d{2}/\d{2}/\d{4}")
+        self.assertIn("🎯 Website • Facebook • Instagram", card)
         # Default destinations stored on the task itself.
         self.assertEqual(
             json.loads(task["destinations"]),
@@ -826,6 +825,21 @@ class BotTestCase(unittest.TestCase):
                     for c in handlers.commands_for_role(roles.ROLE_EDITOR)]
         self.assertIn("menu", commands)
 
+    def test_instagram_page_title_is_cover_headline(self):
+        """The telegra.ph page title is slide 1's headline, never its
+        subtitle line."""
+        md = ("# Bản nháp Instagram — CV-0007\nKênh: Instagram\n\n---\n\n"
+              "## Cấu trúc carousel\n\n"
+              "**Ảnh 1 (toàn cảnh — file_1.jpg):**\n"
+              'Chữ trên ảnh: "Mầm non lúc ngủ 😴"\n'
+              'Phụ đề nhỏ: "ôm gối ôm chặt như ôm cả thế giới"\n\n'
+              "## Caption đăng kèm\nNgủ ngon nhé con.\n")
+        title = botctl._draft_page_title(
+            {"code": "CV-0007", "hint": "gợi ý"}, {"channel": "instagram"},
+            md)
+        self.assertIn("Mầm non lúc ngủ", title)
+        self.assertNotIn("Phụ đề nhỏ", title)
+
     def test_attach_output_draft_stores_ref_and_sends_card(self):
         task = self.create_contributor_task()
         code = task["code"]
@@ -866,7 +880,7 @@ class BotTestCase(unittest.TestCase):
         try:
             args = argparse.Namespace(
                 task_code=code, channel=channel, ref=md_path.name,
-                no_notify=False, file=str(md_path))
+                no_notify=False, file=str(md_path), no_images=False)
             return botctl.cmd_attach_output_draft(self.store, args)
         finally:
             botctl.build_client_or_warn = original_client
@@ -1089,6 +1103,38 @@ class Phase1TestCase(BotTestCase):
             json.loads(task["destinations"]), ["website", "facebook"])
         channels = [o["channel"] for o in self.store.list_outputs(task["code"])]
         self.assertEqual(sorted(channels), ["facebook", "website"])
+        # The wizard finish IS the confirm: the card lands frozen and
+        # exactly one "sent to Muse" notification goes out.
+        texts = self.api.texts_to(CONTRIBUTOR)
+        self.assertTrue(any("🔒 Đã chốt kênh đăng" in t for t in texts))
+        self.assertTrue(any(
+            "Đã tạo việc" in t and "Đã gửi đến Muse" in t
+            for t in texts))
+
+    def test_wizard_step3_edit_hint(self):
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="📝 Giao việc mới"))
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, photo=PHOTO, caption="Ảnh cổng trường"))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_done_files"))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Gợi ý cũ"))
+        step3 = self.api.texts_to(CONTRIBUTOR)[-1]
+        self.assertIn("Bước 3/3", step3)
+        self.assertIn("Gợi ý cũ", step3)
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_hint"))
+        self.assertTrue(any(
+            "Gõ lại toàn bộ nội dung gợi ý mới"
+            in t for t in self.api.texts_to(CONTRIBUTOR)))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Gợi ý mới tinh"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(state["payload"]["hint"], "Gợi ý mới tinh")
+        self.assertIn("Gợi ý mới tinh",
+                      self.api.texts_to(CONTRIBUTOR)[-1])
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
+        task = self.store.list_tasks()[0]
+        self.assertEqual(task["hint"], "Gợi ý mới tinh")
 
     def test_wizard_contributor_needs_a_file(self):
         self.app.handle_update(message_update(CONTRIBUTOR, text="/giaoviec"))

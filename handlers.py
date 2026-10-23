@@ -147,7 +147,7 @@ def main_keyboard(user):
 #: reply keyboard is swapped to these pinned buttons so the user never
 #: has to scroll up to the step prompt to advance or cancel.
 BTN_WIZ_DONE = "✅ Xong, sang bước gợi ý"
-BTN_WIZ_CANCEL = "❌ Huỷ giao việc"
+BTN_WIZ_CANCEL = "🗑 Huỷ giao việc"
 
 
 def wizard_files_keyboard():
@@ -377,7 +377,8 @@ class BotApp:
             return
 
         # The step-by-step creation wizard owns messages while active.
-        if state and state["state"] in ("wizard_files", "wizard_hint"):
+        if state and state["state"] in (
+                "wizard_files", "wizard_hint", "wizard_channels"):
             self._wizard_message(
                 user, chat_id, state, text,
                 self._extract_media(message), message.get("caption"),
@@ -466,7 +467,8 @@ class BotApp:
             "hoặc dùng /viec để xem danh sách việc.",
         )
 
-    def _create_task(self, user, chat_id, hint, file_ids, destinations=None):
+    def _create_task(self, user, chat_id, hint, file_ids,
+                     destinations=None, confirmed=False):
         task = self.store.create_task(
             creator_id=user["telegram_id"], creator_role=user["role"],
             hint=hint, file_ids=file_ids, destinations=destinations,
@@ -480,8 +482,20 @@ class BotApp:
         self.store.sync_outputs_for_task(task)
         task = self.store.get_task(task["code"])
         self._maybe_download_files(task)
-        self._send(chat_id, self.task_card_text(task),
-                   reply_markup=self.task_keyboard(task, user))
+        if confirmed:
+            # Wizard finish IS the confirm (owner's design): the
+            # channels are locked in, the work order goes to Muse,
+            # and the card lands already frozen.
+            chosen = list(task["destinations"])
+            self.store.audit(user["telegram_id"],
+                             "destinations_confirmed", "task",
+                             task["code"],
+                             detail=json.dumps(chosen,
+                                               ensure_ascii=False))
+            self._send(chat_id, self._frozen_card_text(task))
+        else:
+            self._send(chat_id, self.task_card_text(task),
+                       reply_markup=self.task_keyboard(task, user))
         # Option A: reviewers are NOT sent the (still empty) task card
         # at creation — there is nothing to review yet. They receive
         # each channel card when Muse attaches its draft (botctl
@@ -516,20 +530,23 @@ class BotApp:
             creator["display_name"] if creator else str(task["creator_id"])
         )
         file_ids = json.loads(task["file_ids"])
+        # Same card rule as the channel cards: one icon per line,
+        # related fields merged onto one line.
         lines = [
             f"📝 Việc {task['code']} — {STATUS_LABELS.get(task['status'], task['status'])}",
-            f"Người tạo: {creator_name} ({roles.role_title(task['creator_role'])})",
-            f"Thời gian tạo: {_format_created(task['created_at'])}",
-            f"Nội dung/gợi ý: {task['hint'] or '(không có)'}",
-            f"Số file đính kèm: {len(file_ids)}",
-            f"Nơi đăng: {destinations_label(task)}",
+            f"👤 {creator_name} ({roles.role_title(task['creator_role'])})"
+            f" · {_format_created(task['created_at'])}",
+            f"💡 {task['hint'] or '(không có gợi ý)'}",
         ]
+        if file_ids:
+            lines.append(f"📎 {len(file_ids)} file đính kèm")
+        lines.append(f"🎯 {destinations_label(task)}")
         if task["draft_url"]:
-            lines.append(f"Link nháp: {task['draft_url']}")
+            lines.append(f"📄 Link nháp: {task['draft_url']}")
         if task["public_url"]:
-            lines.append(f"Link bài đã đăng: {task['public_url']}")
+            lines.append(f"🔗 Link bài đã đăng: {task['public_url']}")
         if task["status"] == STATUS_REJECTED and task["reject_reason"]:
-            lines.append(f"Lý do trả lại: {task['reject_reason']}")
+            lines.append(f"↩️ Lý do trả lại: {task['reject_reason']}")
         live_outputs = [
             o for o in self.store.list_outputs(task["code"])
             if o["status"] != STATUS_CANCELLED
@@ -543,7 +560,7 @@ class BotApp:
                 lines.append(
                     f"✍️ Bản nháp: đã có {have_drafts}/{len(live_outputs)}"
                     " kênh.")
-            lines.append("Đầu ra theo kênh:")
+            lines.append("📋 Đầu ra theo kênh:")
             for output in live_outputs:
                 meta = CHANNELS.get(output["channel"], {})
                 label = meta.get("label", output["channel"])
@@ -1001,16 +1018,20 @@ class BotApp:
                 "nút ✅ Xong ở bàn phím bên dưới, hoặc gõ chữ \"xong\".",
             )
             return
+        if step == "wizard_channels":
+            if payload.get("edit_hint"):
+                payload["hint"] = text
+                payload["edit_hint"] = False
+                self.store.set_user_state(
+                    user["telegram_id"], "wizard_channels", payload)
+                self._send_wizard_step3(chat_id, payload)
+            return
         # wizard_hint: this text is the hint (or the writer's draft).
         hints = list(payload.get("captions") or []) + [text]
         payload["hint"] = "\n".join(h for h in hints if h)
         self.store.set_user_state(
             user["telegram_id"], "wizard_channels", payload)
-        self._send(
-            chat_id,
-            "Bước 3/3: Chọn nơi đăng cho việc này, rồi bấm ✅ Tạo việc.",
-            reply_markup=self._wizard_channels_keyboard(payload),
-        )
+        self._send_wizard_step3(chat_id, payload)
 
     def _wizard_file_counter(self, user, chat_id, payload):
         """Maintain the single 'files received' message of the wizard's
@@ -1037,18 +1058,48 @@ class BotApp:
         chosen = payload.get("destinations") or []
         rows = [[
             _btn(
-                f"{'✅' if key in chosen else '⬜'} {label}",
+                f"{'✅' if key in chosen else '❌'} {label}",
                 f"wiz_dest:{key}",
             )
             for key, label in DESTINATIONS
         ]]
         if len(chosen) < len(DESTINATIONS):
             rows.append([_btn("✅ Chọn tất cả", "wiz_dest_all")])
+        rows.append([_btn("✏️ Sửa nội dung gợi ý", "wiz_hint")])
         rows.append([
-            _btn("✅ Tạo việc", "wiz_create"),
-            _btn("❌ Huỷ", "wiz_cancel"),
+            _btn("✅ Chốt! Gửi cho Muse", "wiz_create"),
+            _btn("🗑 Huỷ", "wiz_cancel"),
         ])
         return _keyboard(rows)
+
+    def _send_wizard_step3(self, chat_id, payload):
+        """Step 3 of the wizard: channel pickers (all chosen by
+        default), the current hint with its edit button, and the
+        confirm button that creates the task AND sends it to Muse."""
+        hint = (payload.get("hint") or "").strip()
+        hint_line = (f"💡 Gợi ý: {hint}" if hint else
+                     "💡 Gợi ý: (chưa có — bấm ✏️ Sửa nội dung gợi ý "
+                     "để thêm)")
+        self._send(
+            chat_id,
+            "Bước 3/3: Chọn nơi đăng cho việc này, rồi bấm "
+            "✅ Chốt! Gửi cho Muse.\n" + hint_line,
+            reply_markup=self._wizard_channels_keyboard(payload),
+        )
+
+    def _cb_wizard_hint(self, callback_id, user, chat_id):
+        state = self._wizard_state(user)
+        if state is None or state["state"] != "wizard_channels":
+            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
+                         show_alert=True)
+            return
+        payload = state["payload"]
+        payload["edit_hint"] = True
+        self.store.set_user_state(
+            user["telegram_id"], "wizard_channels", payload)
+        self._answer(callback_id)
+        self._send(chat_id,
+                   "✏️ Gõ lại toàn bộ nội dung gợi ý mới cho việc này:")
 
     def _cb_wizard_dest_all(self, callback_id, user, chat_id, message):
         state = self._wizard_state(user)
@@ -1162,14 +1213,17 @@ class BotApp:
             return
         hint = (payload.get("hint") or "").strip()
         self.store.clear_user_state(user["telegram_id"])
-        self._answer(callback_id, "Đã tạo việc.")
+        self._answer(callback_id, "Đã chốt! Đang gửi cho Muse…")
         task = self._create_task(user, chat_id, hint,
                                  payload.get("files") or [],
-                                 destinations=destinations)
+                                 destinations=destinations,
+                                 confirmed=True)
         self._send_main(
             chat_id,
-            f"✅ Đã tạo việc {task['code']} (thẻ việc ở phía trên). "
-            "Bàn phím chính đã quay lại.",
+            f"🎉 Đã tạo việc {task['code']}.\n"
+            "✅ Đã gửi đến Muse. Đợi Muse làm xong — khi xong, "
+            "Muse sẽ thông báo và gửi kết quả công việc (thẻ kênh "
+            "kèm bản nháp) ngay tại đây.",
             user,
         )
 
@@ -1232,6 +1286,8 @@ class BotApp:
                                  data.split(":", 1)[1], message)
         elif data == "wiz_dest_all":
             self._cb_wizard_dest_all(callback_id, user, chat_id, message)
+        elif data == "wiz_hint":
+            self._cb_wizard_hint(callback_id, user, chat_id)
         elif data == "wiz_create":
             self._cb_wizard_create(callback_id, user, chat_id)
         elif data == "wiz_cancel":
@@ -1276,13 +1332,20 @@ class BotApp:
             if frozen_task is not None:
                 self._edit_card(
                     chat_id, message_id,
-                    self.task_card_text(frozen_task)
-                    + "\n🔒 Đã chốt kênh đăng — Muse đang làm bài "
-                      "cho các kênh đã chọn. (Nút trên thẻ này đã "
-                      "đóng băng.)")
+                    self._frozen_card_text(frozen_task))
         else:
             self._refresh_tapped_card(
                 card_snapshot, user, chat_id, message_id)
+
+    def _frozen_card_text(self, task):
+        """A confirmed task card with its buttons stripped: the locked
+        receipt shown after the channels are confirmed (the flow
+        continues on the channel cards)."""
+        return (
+            self.task_card_text(task)
+            + "\n🔒 Đã chốt kênh đăng — Muse đang làm bài cho các "
+              "kênh đã chọn. (Nút trên thẻ này đã đóng băng.)"
+        )
 
     # ------------------------------------------- edit-in-place card refresh
     def _card_snapshot(self, data, user=None):
@@ -1805,19 +1868,21 @@ class BotApp:
             creator["display_name"] if creator else str(task["creator_id"])
         )
         hint = (task["hint"] or "").replace("\n", " ")[:200]
+        # Owner's card rule: one icon per line, related fields merged
+        # onto one line — no bare label lines.
         lines = [
             f"🧾 Thẻ kênh {label} — "
             f"{STATUS_LABELS.get(output['status'], output['status'])}",
-            f"Loại đầu ra: {kind}" if kind else "Loại đầu ra: (không rõ)",
-            f"Việc gốc: {task['code']}",
-            f"Người tạo: {creator_name} ({roles.role_title(task['creator_role'])})",
-            f"Thời gian tạo: {_format_created(output['created_at'])}",
-            f"Gợi ý: {hint or '(không có)'}",
+            f"🗂 {task['code']}" + (f" · {kind}" if kind else ""),
+            f"👤 {creator_name} "
+            f"({roles.role_title(task['creator_role'])})"
+            f" · {_format_created(output['created_at'])}",
+            f"💡 {hint or '(không có)'}",
         ]
         if output["draft_ref"]:
-            lines.append(f"Bản nháp: {output['draft_ref']}")
+            lines.append(f"📄 Bản nháp: {output['draft_ref']}")
         if output["public_url"]:
-            lines.append(f"Link đã đăng: {output['public_url']}")
+            lines.append(f"🔗 Đã đăng: {output['public_url']}")
         if output["status"] == STATUS_REJECTED and output["reject_reason"]:
             lines.append(f"✏️ Yêu cầu chỉnh sửa: {output['reject_reason']}")
         return "\n".join(lines)

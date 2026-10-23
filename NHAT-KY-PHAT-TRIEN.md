@@ -20,6 +20,14 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Chuẩn thẻ mới (mỗi dòng 1 icon), Bước 3 wizard thành nút chốt, trang nháp có ảnh mặc định
+- **Hạng mục:** Trải nghiệm người dùng + đường giao bản nháp
+- **Thay đổi:** Ba điều chỉnh theo chỉ đạo trực tiếp của chủ dự án trong buổi test sau reset:
+  1. **Định dạng thẻ:** thẻ việc và thẻ kênh viết lại theo quy tắc "mỗi dòng đúng 1 icon, gộp trường liên quan vào cùng dòng" — bỏ các dòng nhãn trơ ("Loại đầu ra:", "Việc gốc:", "Người tạo:", "Thời gian tạo:"), thay bằng các dòng 🗂 mã việc · loại, 👤 người tạo · thời gian, 💡 gợi ý, 📄 bản nháp.
+  2. **Wizard Bước 3 = bản chốt hoàn chỉnh:** hiện dòng gợi ý hiện tại kèm nút **"✏️ Sửa nội dung gợi ý"** (gõ lại gợi ý ngay tại Bước 3); nút kết thúc đổi tên thành **"✅ Chốt! Gửi cho Muse"** và hoạt động đúng như nút chốt trên thẻ việc (tạo việc + ghi nhận đã chốt + thẻ việc đóng băng + đúng 1 tin thông báo); nút Huỷ dùng icon thùng rác 🗑 ở cả nút inline lẫn bàn phím wizard. Sửa thêm lỗi định tuyến: tin nhắn chữ ở trạng thái wizard_channels trước đây không tới được bộ xử lý wizard.
+  3. **Trang nháp telegra.ph:** sửa lỗi tiêu đề trang Instagram lấy nhầm dòng phụ đề ("Phụ đề nhỏ…") — nay luôn lấy câu chữ trên ảnh bìa của slide 1; **nhúng ảnh tư liệu vào trang thành mặc định** (chủ dự án chỉ đạo rõ "nên thêm ảnh vào" sau đợt test CV-0004; còn cờ `--no-images` để ngoại lệ). Đã gắn lại cả 6 đầu ra của CV-0001/CV-0002 kèm ảnh và kiểm chứng trực tiếp trên telegra.ph (có figure ảnh + tiêu đề đúng).
+- **Trạng thái:** Đã xong. Kiểm thử 88/88 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Bàn phím chính gọn tiếp: bỏ nút Thống kê và Tất cả việc
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo yêu cầu của chủ dự án, bàn phím vai trò người duyệt/Admin bỏ luôn hàng "📋 Tất cả việc / 📊 Thống kê" — chỉ còn [Giao việc mới | Chờ duyệt] và hàng cuối [Muse đang làm | Ẩn thao tác]. Các lệnh /viec và /thongke vẫn dùng bình thường.

@@ -285,9 +285,11 @@ def _draft_page_title(task, output, md: str) -> str:
         title = heading
         break
     if output["channel"] == "instagram":
+        # The carousel's cover headline is the draft's title; the
+        # generic heading scan above can latch onto a slide subtitle
+        # ("Phụ đề nhỏ: …") instead, so parsed slides always win.
         slides = _parse_ig_slides(md)
-        if slides and (not title or title.lower() in _GENERIC_HEADINGS
-                       or task["code"] in title):
+        if slides:
             title = slides[0][0]
     hint = task["hint"] if "hint" in task.keys() else None
     base = title or hint or task["code"]
@@ -508,13 +510,14 @@ def cmd_attach_output_draft(store, args) -> int:
         except OSError as exc:
             print(f"Lỗi: không đọc được file nháp: {exc}", file=sys.stderr)
             return 1
-        # Photos: host the task's material photos and embed them in
-        # the page so the preview reads like the real post. A failed
-        # upload only drops that photo, never the page itself.
+        # Photos are embedded by default: after the CV-0004 test
+        # the owner directed that draft pages carry the photos ("nên
+        # thêm ảnh vào", 2026-10-23). Hosting puts them in the public
+        # GitHub repo; --no-images opts a task out.
         image_urls = []
         files_dir = DEFAULT_DATA_DIR / "files" / task["code"]
         photos = sorted(files_dir.glob("*")) if files_dir.is_dir() else []
-        if photos:
+        if photos and not getattr(args, "no_images", False):
             host = ImageHost(DEFAULT_DATA_DIR / "image-host.json")
             for photo in photos:
                 try:
@@ -601,6 +604,10 @@ def main(argv=None) -> int:
         "--file", default=None,
         help="File .md chứa nội dung nháp: đăng thành trang telegra.ph "
              "và dùng link trang làm tham chiếu nháp trên thẻ kênh")
+    p_odraft.add_argument(
+        "--no-images", action="store_true",
+        help="Không nhúng ảnh tư liệu vào trang nháp (mặc định có "
+             "nhúng, theo chỉ đạo của chủ dự án)")
 
     p_opub = sub.add_parser(
         "set-output-published",
