@@ -454,13 +454,16 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(state["state"], "task_dest_pending")
         self.assertEqual(state["payload"]["chosen"],
                          ["website", "instagram"])
-        # The tapped card was edited in place: ❌ Facebook, ✅ Website.
+        # The tapped card was edited in place: ❌ Facebook, ✅ Website;
+        # the bottom row is [Chốt! Gửi cho Muse, Thu hồi việc].
         edit = self.api.edits[-1]
-        labels = [b["text"]
-                  for row in edit["reply_markup"]["inline_keyboard"]
-                  for b in row]
+        rows = edit["reply_markup"]["inline_keyboard"]
+        labels = [b["text"] for row in rows for b in row]
         self.assertIn("❌ Facebook", labels)
         self.assertIn("✅ Website", labels)
+        self.assertEqual(
+            [b["text"] for b in rows[-1]],
+            ["✅ Chốt! Gửi cho Muse", "🗑 Thu hồi việc"])
         # OK commits and notifies that the order went to Muse.
         self.api.sent.clear()
         self.app.handle_update(
@@ -472,6 +475,8 @@ class BotTestCase(unittest.TestCase):
         self.assertTrue(any(
             "Đã chốt kênh đăng bài" in t and "Đã gửi đến Muse" in t
             and "gửi kết quả công việc" in t for t in confirmations))
+        # Exactly ONE notification: no channel cards are sent along.
+        self.assertFalse(any("🧾 Thẻ kênh" in t for t in confirmations))
         # The OK card froze: an edit stripped its buttons + lock line.
         frozen = [e for e in self.api.edits
                   if e["reply_markup"] == {"inline_keyboard": []}

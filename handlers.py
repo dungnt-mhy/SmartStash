@@ -96,7 +96,7 @@ HELP_TEXT = (
     "tin nhắn văn bản để chốt tạo việc.\n"
     "Trên thẻ việc: bấm ✏️ Chỉnh sửa gợi ý để sửa gợi ý; ở mục 🎯 "
     "Chọn kênh đăng bài, chạm từng kênh để chọn (✅) hoặc bỏ chọn (❌) "
-    "rồi bấm OK để chốt và gửi lệnh cho Muse viết bài; bấm 🗑 Thu "
+    "rồi bấm 'Chốt! Gửi cho Muse' để gửi lệnh viết bài; bấm 🗑 Thu "
     "hồi việc để hủy việc chưa đăng."
 )
 
@@ -604,12 +604,13 @@ class BotApp:
         elif live_outputs:
             rows.append([_btn("📋 Thẻ các kênh", f"task_outputs:{code}")])
         bottom = []
+        if can_toggle:
+            bottom.append(_btn("✅ Chốt! Gửi cho Muse",
+                               f"task_dest_ok:{code}"))
         if status in (STATUS_DRAFT, STATUS_PENDING, STATUS_REJECTED) and (
             is_creator or is_admin
         ):
             bottom.append(_btn("🗑 Thu hồi việc", f"task_cancel:{code}"))
-        if can_toggle:
-            bottom.append(_btn("✅ OK", f"task_dest_ok:{code}"))
         if bottom:
             rows.append(bottom)
         return _keyboard(rows)
@@ -1244,7 +1245,7 @@ class BotApp:
             self._answer(
                 callback_id,
                 "Chạm vào từng kênh để chọn (✅) hoặc bỏ chọn (❌), "
-                "xong bấm OK ở dưới để chốt và gửi lệnh cho Muse.")
+                "xong bấm nút 'Chốt! Gửi cho Muse' ở dưới.")
         elif data.startswith("task_dest:"):
             _prefix, code, dest = data.split(":", 2)
             self._task_dest(callback_id, user, chat_id, code, dest)
@@ -1265,9 +1266,9 @@ class BotApp:
                 self._edit_card(
                     chat_id, message_id,
                     self.task_card_text(frozen_task)
-                    + "\n🔒 Đã chốt kênh đăng — Muse đang làm bài cho "
-                      "các kênh đã chọn. (Nút trên thẻ này đã đóng "
-                      "băng; duyệt và đăng ở thẻ kênh phía dưới.)")
+                    + "\n🔒 Đã chốt kênh đăng — Muse đang làm bài "
+                      "cho các kênh đã chọn. (Nút trên thẻ này đã "
+                      "đóng băng.)")
         else:
             self._refresh_tapped_card(
                 card_snapshot, user, chat_id, message_id)
@@ -1548,8 +1549,8 @@ class BotApp:
             self._answer(
                 callback_id,
                 "Luồng mới: duyệt và đăng bài ngay trên thẻ kênh, nơi "
-                "có bản nháp. Mở thẻ việc và bấm OK ở mục 🎯 Chọn kênh "
-                "đăng bài để bot gửi lại các thẻ kênh.",
+                "có bản nháp. Thẻ kênh sẽ được gửi tới khi Muse gắn "
+                "bản nháp.",
                 show_alert=True,
             )
             return
@@ -1617,8 +1618,8 @@ class BotApp:
         self.store.set_user_state(
             user["telegram_id"], "task_dest_pending",
             {"code": code, "chosen": chosen})
-        self._answer(callback_id, note + " — bấm OK để chốt và gửi "
-                                   "lệnh cho Muse.")
+        self._answer(callback_id, note + " — bấm 'Chốt! Gửi cho "
+                                   "Muse' để chốt.")
 
     def _task_dest_all(self, callback_id, user, chat_id, code):
         task = self._check_dest_change(callback_id, user, code)
@@ -1633,14 +1634,14 @@ class BotApp:
         self.store.set_user_state(
             user["telegram_id"], "task_dest_pending",
             {"code": code, "chosen": list(DESTINATION_KEYS)})
-        self._answer(callback_id, "Đã chọn tất cả (chưa chốt) — bấm OK "
-                                  "để chốt và gửi lệnh cho Muse.")
+        self._answer(callback_id, "Đã chọn tất cả (chưa chốt) — bấm "
+                                  "'Chốt! Gửi cho Muse' để chốt.")
 
     def _task_dest_ok(self, callback_id, user, chat_id, code):
         """Commit the staged channel selection and send the work order
-        to Muse: destinations + per-channel outputs are synced, the
-        channel cards are (re)sent, and the task lands in the queue
-        Muse watches for drafts to write."""
+        to Muse: destinations + per-channel outputs are synced, ONE
+        notification goes back to the user, and the task lands in the
+        queue Muse watches for drafts to write."""
         task = self._check_dest_change(callback_id, user, code)
         if task is None:
             return False
@@ -1672,10 +1673,9 @@ class BotApp:
             "✅ Đã gửi đến Muse. Đợi Muse làm xong — khi xong, "
             "Muse sẽ thông báo và gửi kết quả công việc (thẻ kênh "
             "kèm bản nháp) ngay tại đây.")
-        updated = self.store.get_task(code)
-        for output in self.store.list_outputs(code):
-            if output["status"] != STATUS_CANCELLED:
-                self.send_output_card(chat_id, output, updated, user)
+        # Owner's rule: exactly ONE notification after confirming,
+        # then silence — the channel cards arrive later, together
+        # with the finished drafts Muse sends back.
         return True
 
     # ------------------------------------------------------------ edit flow

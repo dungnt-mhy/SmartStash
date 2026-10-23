@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Tinh chỉnh nút chốt: hoán vị trí, đổi tên "Chốt! Gửi cho Muse", chỉ 1 tin thông báo sau khi chốt
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo yêu cầu trực tiếp của chủ dự án: hàng nút dưới cùng của thẻ việc đổi thứ tự thành **[✅ Chốt! Gửi cho Muse] [🗑 Thu hồi việc]** (nút chốt đứng trước, tên đúng nguyên văn chủ dự án đặt). Sau khi bấm chốt, bot **chỉ gửi đúng 1 tin thông báo** ("Đã chốt kênh đăng bài… Đã gửi đến Muse. Đợi Muse làm xong…") rồi im lặng chờ — **không gửi kèm loạt thẻ kênh** như bản trước nữa; thẻ kênh sẽ đến sau, cùng bản nháp khi Muse làm xong. Thẻ việc vẫn đóng băng tại chỗ như đã chốt ở mục trước.
+- **Trạng thái:** Đã xong. Kiểm thử 85/85 đạt (bổ sung kiểm chứng thứ tự 2 nút ở hàng cuối và việc không có thẻ kênh nào được gửi kèm sau khi chốt). Bot đã khởi động lại.
+
 ### 2026-10-23 — Thẻ việc đổi sang mô hình chốt bằng OK: chọn kênh theo giai đoạn, đóng băng thẻ, nút trạng thái "Muse đang làm"
 - **Hạng mục:** Tính năng / Trải nghiệm người dùng
 - **Thay đổi:** Theo mô tả trực tiếp của chủ dự án khi test bản reset (kèm ảnh chụp khối nút trên thẻ việc):
