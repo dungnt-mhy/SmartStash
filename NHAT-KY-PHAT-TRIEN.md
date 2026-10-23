@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Nút hủy ở Bước 3: "❌ Hủy việc"
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo yêu cầu của chủ dự án, nút hủy ở Bước 3 wizard đổi từ "🗑 Huỷ" thành **"❌ Hủy việc"** (icon đỏ). Hàng cuối Bước 3 nay là [🚀 Chốt! Gửi Muse] [❌ Hủy việc].
+- **Trạng thái:** Đã xong. Kiểm thử 91/91 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Rút gọn tên nút chốt: "Chốt! Gửi Muse"
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo yêu cầu của chủ dự án, nút chốt bỏ chữ "cho": **"🚀 Chốt! Gửi Muse"** — áp dụng ở Bước 3 wizard, thẻ việc và mọi câu chữ dẫn chiếu tới nút.

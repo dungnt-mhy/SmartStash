@@ -1072,7 +1072,7 @@ class BotApp:
         rows.append([_btn("✏️ Sửa nội dung gợi ý", "wiz_hint")])
         rows.append([
             _btn("🚀 Chốt! Gửi Muse", "wiz_create"),
-            _btn("🗑 Huỷ", "wiz_cancel"),
+            _btn("❌ Hủy việc", "wiz_cancel"),
         ])
         return _keyboard(rows)
 
