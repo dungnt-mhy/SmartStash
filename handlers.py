@@ -2079,6 +2079,9 @@ class BotApp:
         elif action == "out_pubto":
             self._output_publish_target(
                 callback_id, user, chat_id, output, task, extra, message_id)
+        elif action == "out_pubabort":
+            self._output_publish_abort(
+                callback_id, user, chat_id, output, task, message_id)
         elif action == "out_retract":
             self._output_retract_start(
                 callback_id, user, chat_id, output, task)
@@ -2381,6 +2384,8 @@ class BotApp:
                           f"out_pubto:{output['id']}:profile")],
                     [_btn("📄 Fanpage Minhy",
                           f"out_pubto:{output['id']}:page")],
+                    [_btn("🗑 Hủy đăng",
+                          f"out_pubabort:{output['id']}")],
                 ]))
             return
         self.store.audit(user["telegram_id"], "publish_requested",
@@ -2424,6 +2429,31 @@ class BotApp:
             f"⏳ Đã nhận lệnh đăng bài Facebook của việc "
             f"{task['code']} lên {label}. Muse đang đăng — link "
             "bài sẽ được gửi ngay khi đăng xong.")
+
+    def _output_publish_abort(self, callback_id, user, chat_id,
+                              output, task, message_id):
+        """Backing out at the target-choice step: nothing was
+        recorded yet, so aborting just retires the choice message —
+        the output stays APPROVED_WAITING and the card keeps its
+        Đăng button for later."""
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["channel"] != "facebook" \
+                or output["status"] != STATUS_APPROVED_WAITING:
+            self._answer(callback_id, "Thao tác không hợp lệ.")
+            return
+        self.store.audit(user["telegram_id"], "publish_aborted",
+                         "output", output["id"],
+                         detail=f"task={task['code']} channel=facebook "
+                                "stage=target_choice")
+        self._answer(callback_id, "Đã hủy lệnh đăng.")
+        self._edit_card(
+            chat_id, message_id,
+            f"🚫 Đã hủy đăng bài Facebook của việc {task['code']}. "
+            "Bài vẫn ở trạng thái chờ đăng — bấm 🚀 Đăng trên thẻ "
+            "kênh khi muốn đăng lại.")
 
     def _output_retract_start(self, callback_id, user, chat_id, output, task):
         if output["status"] != STATUS_PUBLISHED:

@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Nút Hủy đăng ở bước chọn nơi đăng Facebook
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án yêu cầu "ở chỗ chọn nơi đăng cũng có nút hủy". Tin nhắn chọn nơi đăng (Trang cá nhân / Fanpage Minhy) nay có thêm nút **🗑 Hủy đăng**: bấm là hủy lệnh đăng ngay tại bước chọn (chưa ghi nhận lệnh nào), tin nhắn chọn tự sửa thành thông báo đã hủy và gỡ nút; bài vẫn ở trạng thái chờ đăng, thẻ kênh còn nguyên nút 🚀 Đăng để đăng lại khi cần (có audit `publish_aborted`).
+- **Trạng thái:** Đã xong. Kiểm thử 108/108 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Thêm nút ✏️ Sửa lại cho người tạo trên thẻ kênh
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án xem thẻ CV-0007 và yêu cầu "phải có nút sửa lại + gợi ý sửa lại". Trước đó ↩️ Trả lại chỉ dành cho người duyệt; người tạo (kể cả Admin, sau đợt phân vai) không có cách nào bảo Muse viết lại bản nháp ngay trên thẻ. Đã thêm nút **✏️ Sửa lại** cho NGƯỜI TẠO trên mọi thẻ kênh đã có nháp (trạng thái Nháp/Bị trả): bấm → gõ nội dung cần sửa → đầu ra chuyển sang "cần viết lại" kèm nguyên văn yêu cầu (audit `revise_output`), bot chỉ gửi đúng 1 tin xác nhận; bộ theo dõi nền bắt sự kiện này như một lượt trả bài và Muse viết lại, gắn lại cùng trang telegra.ph. Bố cục thẻ của Admin: [🚀 Đăng] / [✏️ Sửa lại · 🗑 Hủy bài]; thẻ người tạo thường: [📤 Gửi duyệt] / [✏️ Sửa lại].

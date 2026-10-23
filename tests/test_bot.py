@@ -411,6 +411,32 @@ class BotTestCase(unittest.TestCase):
         self.assertIn(f"out_approve:{web['id']}", data)
         self.assertIn(f"out_reject:{web['id']}", data)
 
+    def test_facebook_target_choice_has_cancel_button(self):
+        # Owner's rule: the target-choice step also needs a way out.
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        self.app.handle_update(callback_update(ADMIN, f"out_publish:{fb['id']}"))
+        choice = self.api.sent[-1]
+        data = [b["callback_data"]
+                for row in choice["reply_markup"]["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_pubabort:{fb['id']}", data)
+        # Aborting records NO publish request; the output stays
+        # APPROVED_WAITING and the choice message retires.
+        self.app.handle_update(callback_update(
+            ADMIN, f"out_pubabort:{fb['id']}"))
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "APPROVED_WAITING")
+        self.assertEqual(
+            len(self.store.audit_entries("publish_requested")), 0)
+        self.assertEqual(
+            len(self.store.audit_entries("publish_aborted")), 1)
+        self.assertTrue(any(
+            e["message_id"] == 1
+            and "Đã hủy đăng bài Facebook" in (e.get("text") or "")
+            for e in self.api.edits))
+
     def test_admin_own_website_publish_records_request_directly(self):
         task = self.create_admin_task()
         web = self.store.get_output_by_channel(task["code"], "website")
