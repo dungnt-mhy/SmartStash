@@ -371,6 +371,46 @@ class BotTestCase(unittest.TestCase):
             "Fanpage Minhy" in (e.get("text") or "")
             for e in self.api.edits))
 
+    def test_admin_own_card_has_no_review_buttons(self):
+        # Owner's rule, buttons split by role: on the Admin's OWN
+        # card there is no Gửi duyệt, no Duyệt, no Trả lại — only
+        # Đăng and Hủy bài, in DRAFT and in a legacy PENDING alike.
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        admin = self.store.get_user(ADMIN)
+        for status in ("DRAFT", "PENDING"):
+            self.store.set_output_status(fb["id"], status)
+            markup = self.app.output_keyboard(
+                self.store.get_output(fb["id"]), admin)
+            data = [b["callback_data"]
+                    for row in markup["inline_keyboard"] for b in row]
+            self.assertIn(f"out_publish:{fb['id']}", data)
+            self.assertIn(f"out_cancel:{fb['id']}", data)
+            self.assertNotIn(f"out_submit:{fb['id']}", data)
+            self.assertNotIn(f"out_approve:{fb['id']}", data)
+            self.assertNotIn(f"out_reject:{fb['id']}", data)
+        # Đăng from the legacy PENDING state also fast-tracks.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{fb['id']}"))
+        self.assertEqual(
+            self.store.get_output(fb["id"])["status"], "APPROVED_WAITING")
+        # A reviewer looking at SOMEONE ELSE's card still gets the
+        # full review row — roles stay clearly separated.
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, text="Việc của cộng tác viên"))
+        task2 = [t for t in self.store.list_tasks()
+                 if t["creator_id"] == CONTRIBUTOR][0]
+        web = self.attach_draft_and_submit(task2["code"])
+        editor = self.store.get_user(EDITOR)
+        markup = self.app.output_keyboard(
+            self.store.get_output(web["id"]), editor)
+        data = [b["callback_data"] for row in markup["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_approve:{web['id']}", data)
+        self.assertIn(f"out_reject:{web['id']}", data)
+
     def test_admin_own_website_publish_records_request_directly(self):
         task = self.create_admin_task()
         web = self.store.get_output_by_channel(task["code"], "website")

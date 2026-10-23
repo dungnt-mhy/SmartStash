@@ -1925,14 +1925,18 @@ class BotApp:
         task = self.store.get_task(output["task_code"])
         is_creator = task is not None and \
             viewer["telegram_id"] == task["creator_id"]
-        if is_creator and status in (STATUS_DRAFT, STATUS_REJECTED):
-            if viewer["role"] == roles.ROLE_ADMIN and output["draft_ref"]:
-                # Owner's rule: an Admin working on their OWN task
-                # needs no Gửi duyệt/Duyệt — the card goes straight
-                # to Đăng.
+        if is_creator and viewer["role"] == roles.ROLE_ADMIN and \
+                status in (STATUS_DRAFT, STATUS_REJECTED, STATUS_PENDING):
+            # Owner's rule, buttons split clearly by role: an Admin
+            # working on their OWN task has no Gửi duyệt, no Duyệt
+            # and no Trả lại — only Đăng (once a draft exists) and
+            # Hủy bài.
+            if output["draft_ref"]:
                 rows.append([_btn("🚀 Đăng", f"out_publish:{oid}")])
-            else:
-                rows.append([_btn("📤 Gửi duyệt", f"out_submit:{oid}")])
+            rows.append([_btn("🗑 Hủy bài", f"out_cancel:{oid}")])
+            return _keyboard(rows)
+        if is_creator and status in (STATUS_DRAFT, STATUS_REJECTED):
+            rows.append([_btn("📤 Gửi duyệt", f"out_submit:{oid}")])
         if roles.can_review(viewer["role"]) and status == STATUS_PENDING:
             # Owner's review row: Duyệt · Trả lại · Hủy bài, one row.
             rows.append([
@@ -2245,7 +2249,8 @@ class BotApp:
         # Owner's rule: an Admin publishing their OWN task skips
         # the review hop entirely — a draft-ready DRAFT/REJECTED
         # output moves straight to APPROVED_WAITING on this click.
-        if output["status"] in (STATUS_DRAFT, STATUS_REJECTED):
+        if output["status"] in (STATUS_DRAFT, STATUS_REJECTED,
+                                STATUS_PENDING):
             if (user["telegram_id"] == task["creator_id"]
                     and user["role"] == roles.ROLE_ADMIN
                     and output["draft_ref"]):

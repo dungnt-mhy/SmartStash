@@ -574,8 +574,49 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
         </ul>
       </section>
 
+      <section id="phase1-final">
+        <div class="sec-head"><span class="sec-num">11</span><h2>Phụ lục — Tinh chỉnh đã chốt trong Giai đoạn 1</h2></div>
+        <p class="kbd-note">Hoàn thiện ngày 2026-10-23 theo quy ước "cuối mỗi giai đoạn hoàn thiện lại file thiết kế cho khớp". Toàn bộ các mục dưới đây đã triển khai, kiểm thử đạt (70–100 test mỗi đợt) và đang chạy trên bot thật.</p>
+        <div class="grid2">
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Chuẩn định dạng thẻ &amp; nút chọn kênh</h4>
+            <ul class="checklist">
+              <li class="done">Mọi thẻ (thẻ việc + thẻ kênh): <b>mỗi dòng đúng 1 icon</b> ở đầu dòng, gộp trường liên quan vào cùng dòng, bỏ dòng nhãn trơ</li>
+              <li class="done">Mẫu thẻ kênh: 🧾 tiêu đề / 🗂 mã việc · loại / 👤 người tạo · thời gian / 💡 gợi ý / 📄 link nháp</li>
+              <li class="done">Nút chọn kênh chỉ hiện <b>icon + tên kênh</b> (🌐 Website / 📘 Facebook / 📸 Instagram); chạm bỏ chọn → icon thành ❌ (giữ tên kênh), chạm lại → về icon cũ; không tích xanh, không nút "Chọn tất cả"</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Mô hình chốt — thẻ việc &amp; wizard Bước 3</h4>
+            <ul class="checklist">
+              <li class="done">Thẻ việc: khối <b>"🎯 Chọn kênh đăng bài"</b> (3 nút kênh theo chuẩn nút chọn kênh, chạm chỉ là chọn tạm); nút <b>"🚀 Chốt! Gửi Muse"</b> đứng trước "🗑 Thu hồi việc" là nút chốt duy nhất → đồng bộ kênh + gửi lệnh cho Muse, bot chỉ trả đúng 1 tin thông báo rồi chờ; sau chốt thẻ việc <b>bị đóng băng</b> (gỡ hết nút, thêm dòng 🔒)</li>
+              <li class="done">Wizard Bước 3: hiện gợi ý hiện tại + nút "✏️ Sửa nội dung gợi ý"; ghi chú "📌 Mặc định đang chọn cả 3 nơi đăng — chạm vào từng kênh để bỏ chọn nếu không cần"; nút kết thúc "🚀 Chốt! Gửi Muse" chính là chốt thật; nút "🗑 Hủy việc"</li>
+              <li class="done">Wizard Bước 1: chỉ <b>1 tin đếm file duy nhất</b> sửa tại chỗ, nút Xong/Huỷ nằm trên bàn phím ghim</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Bàn phím chính &amp; 4 chuẩn UX tin nhắn</h4>
+            <ul class="checklist">
+              <li class="done">Bàn phím gọn: không nút Người dùng / Thống kê / Tất cả việc (dùng <code>/danhsach</code>, <code>/thongke</code>, <code>/viec</code>); người duyệt 2 hàng: [📝 Giao việc mới | ⏳ Chờ duyệt] và [🤖 Muse đang làm | 🙈 Ẩn thao tác]; nút "🙈 Ẩn thao tác" ẩn bàn phím, gõ <code>/menu</code> để hiện lại</li>
+              <li class="done">Tin nhắn bot <b>tắt hộp xem trước link</b> toàn cục (<code>link_preview_options</code>)</li>
+              <li class="done">Nút <b>"↩️ Trả lại"</b> ngay trên thẻ kênh đang Nháp đã có nháp; khi trả chỉ gửi đúng 1 tin cho người trả kèm nguyên văn yêu cầu — không báo người tạo; hàng nút duyệt: [✅ Duyệt | ↩️ Trả lại | 🗑 Hủy bài] (Hủy bài = hủy hẳn đầu ra kênh, chỉ người có quyền duyệt bấm được)</li>
+              <li class="done">Hết phiên giao việc báo bằng <b>toast nhẹ</b> thay hộp thoại bắt bấm OK (cảnh báo quyền/sai trạng thái vẫn giữ hộp thoại)</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Luồng Đăng một chạm &amp; đóng băng thẻ cũ</h4>
+            <ul class="checklist">
+              <li class="done">Nút 🚀 Đăng <b>chỉ là lệnh đăng</b> (ghi nhận + 1 tin "⏳ Đã nhận lệnh đăng"), không tự lật trạng thái; Muse đăng thật qua trình duyệt rồi hoàn tất bằng <code>set-output-published</code> → đúng 1 thông báo <b>"✅ Đã đăng thành công"</b> kèm link bài trên thẻ kênh</li>
+              <li class="done"><b>Admin làm việc của mình thì bỏ qua Gửi duyệt/Duyệt</b> — thẻ kênh có nháp hiện thẳng 🚀 Đăng; người duyệt tự duyệt việc của mình thì bot không gửi thêm thẻ thông báo (thẻ đang bấm tự cập nhật tại chỗ)</li>
+              <li class="done">Chốt <b>nơi đăng Facebook ngay trong Telegram</b>: bấm Đăng ở kênh Facebook → chọn 👤 Trang cá nhân hay 📄 Fanpage Minhy → mới ghi lệnh đăng kèm target</li>
+              <li class="done"><b>Thẻ kênh mới đóng băng thẻ cũ:</b> bot ghi nhớ mọi thẻ kênh đã gửi (bảng <code>output_cards</code>); thẻ mới của cùng đầu ra tự sửa các thẻ cũ trong cuộc trò chuyện về trạng thái hiện tại và gỡ toàn bộ nút — chỉ thẻ mới nhất còn thao tác được</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section id="sources">
-        <div class="sec-head"><span class="sec-num">11</span><h2>Nguồn đối chiếu</h2></div>
+        <div class="sec-head"><span class="sec-num">12</span><h2>Nguồn đối chiếu</h2></div>
         <p class="sec-sub">Toàn bộ cơ chế và con số trong bản thiết kế lấy từ tài liệu chính thức của Telegram (đọc ngày 22–23/10/2026), hai nguồn phụ được ghi rõ khi dùng.</p>
         <ul class="src-list">
           <li>Telegram Bot API — tài liệu tham chiếu chính thức (phiên bản 10.3): <a href="https://core.telegram.org/bots/api">https://core.telegram.org/bots/api</a></li>

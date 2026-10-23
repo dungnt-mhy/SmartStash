@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Nút bấm phân vai rõ ràng: thẻ của Admin không còn Gửi duyệt / Duyệt / Trả lại
+- **Hạng mục:** Phân quyền / trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án chốt lại: "Admin tự tạo bài thì không cần gửi duyệt, duyệt, và trả lại — cần phân vai và nút rõ ràng". Trước đó thẻ việc của chính Admin vẫn còn nút ↩️ Trả lại (do hàng nút của người duyệt). Nay: Admin xem thẻ kênh của việc do mình tạo (Nháp / Bị trả / Chờ duyệt cũ) chỉ còn 2 nút [🚀 Đăng] (khi đã có nháp) và [🗑 Hủy bài] — không Gửi duyệt, không Duyệt, không Trả lại. Các vai khác giữ nguyên: người tạo thường có Gửi duyệt; người duyệt xem việc của người khác vẫn đủ Duyệt / Trả lại / Hủy bài. Bấm Đăng từ trạng thái Chờ duyệt cũ của việc Admin cũng đi đường tắt như Nháp.
+- **Trạng thái:** Đã xong. Kiểm thử 102/102 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Thẻ kênh mới tự đóng băng thẻ cũ: hết nút Đăng "sống" trên thẻ đã đăng
 - **Hạng mục:** Trải nghiệm người dùng / tính nhất quán thẻ
 - **Thay đổi:** Chủ dự án gửi ảnh chụp thẻ CV-0004: bài đã đăng xong mà thẻ cũ trong khung chat vẫn hiện nút 🚀 Đăng. Nguyên nhân: bot chỉ sửa tại chỗ thẻ bị bấm, còn các thẻ gửi sau (gắn nháp, hoàn tất đăng) là tin mới — thẻ cũ giữ nguyên nút bấm cũ. Nay bot ghi nhớ mọi thẻ kênh đã gửi (bảng mới `output_cards`); mỗi khi gửi thẻ mới cho một đầu ra, các thẻ cũ của chính đầu ra đó trong cùng cuộc trò chuyện được sửa tại chỗ về trạng thái hiện tại và **gỡ toàn bộ nút** (đóng băng như thẻ việc đã chốt). Chỉ thẻ mới nhất còn nút thao tác.
