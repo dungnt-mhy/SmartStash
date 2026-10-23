@@ -20,11 +20,17 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Cách A: duyệt bài trên thẻ kênh + gọn Bước 1 wizard (hết rối)
+- **Hạng mục:** Tính năng / Thiết kế luồng
+- **Thay đổi:** (1) Chủ dự án chốt **Cách A**: bỏ hẳn nút Gửi duyệt/Duyệt/Đăng/Thu hồi bài trên **thẻ việc gốc** — trước đây bấm Gửi duyệt là duyệt một cái vỏ chưa có bài viết nào (lỗi do chủ dự án chỉ ra khi dùng thử CV-0001). Toàn bộ duyệt/đăng chuyển xuống **thẻ kênh**, nơi có bản nháp thật. (2) Trên thẻ kênh, nút 📤 Gửi duyệt bị **chặn khi kênh chưa có bản nháp** (bot báo "Muse đang viết"), nên không còn duyệt rỗng. (3) **Trạng thái thẻ việc được tự suy ra từ các thẻ kênh** (`sync_task_status_from_outputs`): có kênh chờ duyệt → việc Chờ duyệt; tất cả đã đăng → việc Đã đăng; … (4) Lúc tạo việc, bot **không gửi thẻ việc cho người duyệt nữa** (chưa có gì để duyệt); người duyệt nhận thẻ kênh khi Muse gắn nháp (botctl attach-output-draft) và khi kênh được gửi duyệt. (5) Thẻ việc có thêm dòng **"✍️ Bản nháp: chưa có — đang chờ Muse viết bài"** / "đã có X/Y kênh". (6) Nút cũ trên các thẻ đã gửi từ trước vẫn bấm được nhưng bot trả lời hướng dẫn "duyệt trên thẻ kênh", không đổi trạng thái. (7) **Bước 1 wizard hết rối:** bỏ tin xác nhận + khối nút lặp lại dưới mỗi ảnh; thay bằng **một tin đếm file duy nhất được sửa tại chỗ** ("📎 Đã nhận N file…"), nút ✅ Xong/❌ Huỷ chỉ còn trên bàn phím ghim bên dưới.
+- **Lý do:** Phản hồi trực tiếp của chủ dự án: "nếu tôi bấm gửi duyệt thì tôi đã nhận được bài viết đâu?" và "Rối quá, mỗi ảnh lại thêm 1 bước xác nhận".
+- **Trạng thái:** Đã xong. Kiểm thử 74/74 đạt (viết lại 12 test theo luồng mới: duyệt/đăng/thu hồi ở thẻ kênh, chặn gửi duyệt khi chưa có nháp, thẻ cũ bị chuyển hướng, tin đếm file sửa tại chỗ), bot đã khởi động lại bản mới, README mục 4–6 đã cập nhật.
+
 ### 2026-10-23 — Thêm nút "Chọn tất cả" khi chọn nơi đăng
 - **Hạng mục:** Tính năng
 - **Thay đổi:** Ở cả hai chỗ chọn kênh (Bước 3 của wizard và hàng nút chọn nơi đăng trên thẻ việc) thêm nút ✅ Chọn tất cả — chỉ hiện khi đang có ít nhất một kênh chưa chọn; bấm một cái là chọn đủ Website + Facebook + Instagram và các thẻ kênh được đồng bộ lại.
 - **Lý do:** Yêu cầu trực tiếp của chủ dự án khi dùng thử.
-- **Trạng thái:** Đã xong, kiểm thử 74/74 đạt, bot đã chạy bản mới. (Cùng lúc, chủ dự án chỉ ra lỗi luồng "bấm Gửi duyệt ở thẻ gốc khi chưa có bài viết" — đang chờ chủ dự án chốt cách sửa: chuyển duyệt bài xuống thẻ kênh, hay khóa nút Gửi duyệt cho đến khi có nháp.)
+- **Trạng thái:** Đã xong, kiểm thử 74/74 đạt, bot đã chạy bản mới. (Cùng lúc, chủ dự án chỉ ra lỗi luồng "bấm Gửi duyệt ở thẻ gốc khi chưa có bài viết" — chủ dự án đã chốt Cách A và lỗi này đã được sửa ở mục ngay phía trên.)
 
 ### 2026-10-23 — Sửa trải nghiệm wizard Bước 1: nút Xong luôn ở dưới tay
 - **Hạng mục:** Tính năng / Trải nghiệm người dùng

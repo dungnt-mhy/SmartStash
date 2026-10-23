@@ -174,14 +174,15 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         return tasks[0]
 
-    def move_task_to_approved_waiting(self, code):
-        self.app.handle_update(callback_update(CONTRIBUTOR, f"task_submit:{code}"))
-        task = self.store.get_task(code)
-        self.assertEqual(task["status"], "PENDING")
-        self.app.handle_update(callback_update(EDITOR, f"task_approve:{code}"))
-        task = self.store.get_task(code)
-        self.assertEqual(task["status"], "APPROVED_WAITING")
-        return task
+    def attach_draft_and_submit(self, code, channel="website"):
+        """Option A flow: Muse's draft lands on the channel card,
+        then the creator submits that channel for review."""
+        output = self.store.get_output_by_channel(code, channel)
+        self.store.set_output_draft(
+            output["id"], f"https://example.com/draft/{channel}")
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"out_submit:{output['id']}"))
+        return self.store.get_output(output["id"])
 
     # --------------------------------------------------------------- tests
     def test_unknown_user_cannot_create_task(self):
@@ -213,64 +214,83 @@ class BotTestCase(unittest.TestCase):
         self.assertIsNotNone(task2)
         self.assertIn("Ảnh hội thảo", task2["hint"])
         self.assertIn("chốt bài", task2["hint"])
-        # Reviewers were notified of the first task.
-        self.assertTrue(any(
+        # Option A: reviewers are NOT sent the still-empty task card at
+        # creation — there is no draft to review yet. The creator got
+        # the card; reviewers hear about the task when a channel draft
+        # is attached or submitted.
+        self.assertFalse(any(
             "CV-0001" in t for t in self.api.texts_to(ADMIN)))
+        self.assertTrue(any(
+            "CV-0001" in t for t in self.api.texts_to(CONTRIBUTOR)))
 
-    def test_contributor_publish_attempt_denied_and_audited(self):
+    def test_task_level_actions_on_stale_card_are_redirected(self):
+        # Option A: cards sent before the redesign still carry task-level
+        # review buttons. Tapping one must not move anything — the bot
+        # points the user at the channel cards instead.
         task = self.create_contributor_task()
-        self.move_task_to_approved_waiting(task["code"])
-        self.api.answered.clear()
-        self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_publish:{task['code']}"))
-        task = self.store.get_task(task["code"])
-        self.assertEqual(task["status"], "APPROVED_WAITING")
-        denied = self.store.audit_entries("denied_publish_attempt")
-        self.assertEqual(len(denied), 1)
-        self.assertEqual(denied[0]["actor_id"], CONTRIBUTOR)
-        self.assertTrue(self.api.answered[-1]["show_alert"])
-        self.assertIn("không có quyền đăng", self.api.answered[-1]["text"])
+        code = task["code"]
+        for action in ("task_submit", "task_approve", "task_publish",
+                       "task_retract"):
+            self.api.answered.clear()
+            self.app.handle_update(callback_update(ADMIN, f"{action}:{code}"))
+            self.assertTrue(self.api.answered[-1]["show_alert"])
+            self.assertIn("thẻ kênh", self.api.answered[-1]["text"])
+            self.assertEqual(self.store.get_task(code)["status"], "DRAFT")
 
-    def test_editor_approve_moves_pending_to_approved_waiting(self):
+    def test_output_approve_moves_channel_and_derives_task_status(self):
         task = self.create_contributor_task()
+        code = task["code"]
+        output = self.attach_draft_and_submit(code)
+        self.assertEqual(output["status"], "PENDING")
+        # The parent task's status is derived from its channels.
+        self.assertEqual(self.store.get_task(code)["status"], "PENDING")
         self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_submit:{task['code']}"))
-        self.assertEqual(self.store.get_task(task["code"])["status"], "PENDING")
-        self.app.handle_update(
-            callback_update(EDITOR, f"task_approve:{task['code']}"))
+            callback_update(EDITOR, f"out_approve:{output['id']}"))
         self.assertEqual(
-            self.store.get_task(task["code"])["status"], "APPROVED_WAITING")
-        self.assertEqual(len(self.store.audit_entries("approve_task")), 1)
+            self.store.get_output(output["id"])["status"], "APPROVED_WAITING")
+        self.assertEqual(
+            self.store.get_task(code)["status"], "APPROVED_WAITING")
+        self.assertEqual(len(self.store.audit_entries("approve_output")), 1)
 
-    def test_editor_without_can_publish_cannot_publish_but_admin_can(self):
+    def test_output_publish_requires_permission_admin_works(self):
         task = self.create_contributor_task()
-        self.move_task_to_approved_waiting(task["code"])
+        code = task["code"]
+        output = self.attach_draft_and_submit(code)
+        self.app.handle_update(
+            callback_update(EDITOR, f"out_approve:{output['id']}"))
         # Editor has can_publish = False.
         self.app.handle_update(
-            callback_update(EDITOR, f"task_publish:{task['code']}"))
+            callback_update(EDITOR, f"out_publish:{output['id']}"))
         self.assertEqual(
-            self.store.get_task(task["code"])["status"], "APPROVED_WAITING")
+            self.store.get_output(output["id"])["status"], "APPROVED_WAITING")
+        self.assertEqual(
+            len(self.store.audit_entries("denied_output_publish_attempt")), 1)
         # Admin publishes.
         self.app.handle_update(
-            callback_update(ADMIN, f"task_publish:{task['code']}"))
+            callback_update(ADMIN, f"out_publish:{output['id']}"))
         self.assertEqual(
-            self.store.get_task(task["code"])["status"], "PUBLISHED")
-        self.assertEqual(len(self.store.audit_entries("publish_task")), 1)
+            self.store.get_output(output["id"])["status"], "PUBLISHED")
+        self.assertEqual(len(self.store.audit_entries("publish_output")), 1)
 
-    def test_editor_reject_with_reason(self):
+    def test_output_submit_blocked_until_draft_attached(self):
+        # The exact flaw the owner reported: submitting for review while
+        # no article exists yet. The channel card refuses until Muse's
+        # draft is attached.
         task = self.create_contributor_task()
+        code = task["code"]
+        web = self.store.get_output_by_channel(code, "website")
+        self.api.answered.clear()
         self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_submit:{task['code']}"))
+            callback_update(CONTRIBUTOR, f"out_submit:{web['id']}"))
+        self.assertEqual(self.store.get_output(web["id"])["status"], "DRAFT")
+        self.assertTrue(self.api.answered[-1]["show_alert"])
+        self.assertIn("chưa có bản nháp", self.api.answered[-1]["text"])
+        # Once the draft lands, submitting works.
+        self.store.set_output_draft(web["id"], "https://example.com/draft/web")
         self.app.handle_update(
-            callback_update(EDITOR, f"task_reject:{task['code']}"))
-        self.app.handle_update(
-            message_update(EDITOR, text="Thiếu thời gian, địa điểm"))
-        task = self.store.get_task(task["code"])
-        self.assertEqual(task["status"], "REJECTED")
-        self.assertEqual(task["reject_reason"], "Thiếu thời gian, địa điểm")
-        # Creator was notified with the reason.
-        self.assertTrue(any(
-            "Thiếu thời gian" in t for t in self.api.texts_to(CONTRIBUTOR)))
+            callback_update(CONTRIBUTOR, f"out_submit:{web['id']}"))
+        self.assertEqual(
+            self.store.get_output(web["id"])["status"], "PENDING")
 
     def test_non_admin_capquyen_denied(self):
         self.app.handle_update(message_update(CONTRIBUTOR, text="/capquyen"))
@@ -429,9 +449,10 @@ class BotTestCase(unittest.TestCase):
     def test_destination_toggle_permission_by_status(self):
         task = self.create_contributor_task()
         code = task["code"]
-        # While the task is PENDING, the contributor creator may no longer
-        # toggle; a reviewer (editor) may.
-        self.app.handle_update(callback_update(CONTRIBUTOR, f"task_submit:{code}"))
+        # While the task is PENDING (a channel is under review), the
+        # contributor creator may no longer toggle; a reviewer may.
+        self.attach_draft_and_submit(code)
+        self.assertEqual(self.store.get_task(code)["status"], "PENDING")
         self.api.answered.clear()
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{code}:facebook"))
@@ -505,42 +526,48 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(self.store.get_task(code)["status"], "CANCELLED")
         self.assertTrue(self.api.answered[-1]["show_alert"])
 
-    # -------------------------------------------------- new: retract flow
-    def test_retract_requires_publish_permission_admin_works(self):
+    # ------------------------------------- retract flow (channel cards)
+    def test_output_retract_requires_publish_permission_admin_works(self):
         task = self.create_contributor_task()
         code = task["code"]
-        self.move_task_to_approved_waiting(code)
-        self.app.handle_update(callback_update(ADMIN, f"task_publish:{code}"))
-        self.assertEqual(self.store.get_task(code)["status"], "PUBLISHED")
-        # Editor without can_publish: retract start + confirm are denied
-        # at confirm time and audited.
-        self.app.handle_update(callback_update(EDITOR, f"task_retract:{code}"))
+        web = self.attach_draft_and_submit(code)
+        self.app.handle_update(
+            callback_update(EDITOR, f"out_approve:{web['id']}"))
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{web['id']}"))
+        self.assertEqual(
+            self.store.get_output(web["id"])["status"], "PUBLISHED")
+        # Editor without can_publish: the retract confirm is denied and
+        # audited.
+        self.app.handle_update(
+            callback_update(EDITOR, f"out_retract:{web['id']}"))
         self.api.answered.clear()
         self.app.handle_update(
-            callback_update(EDITOR, f"task_retract_confirm:{code}"))
-        self.assertEqual(self.store.get_task(code)["status"], "PUBLISHED")
+            callback_update(EDITOR, f"out_retract_confirm:{web['id']}"))
+        self.assertEqual(
+            self.store.get_output(web["id"])["status"], "PUBLISHED")
         self.assertTrue(self.api.answered[-1]["show_alert"])
         self.assertEqual(
-            len(self.store.audit_entries("denied_retract_attempt")), 1)
+            len(self.store.audit_entries("denied_output_retract_attempt")), 1)
         # Contributor is denied too.
         self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_retract_confirm:{code}"))
-        self.assertEqual(self.store.get_task(code)["status"], "PUBLISHED")
+            callback_update(CONTRIBUTOR, f"out_retract_confirm:{web['id']}"))
         self.assertEqual(
-            len(self.store.audit_entries("denied_retract_attempt")), 2)
+            self.store.get_output(web["id"])["status"], "PUBLISHED")
+        self.assertEqual(
+            len(self.store.audit_entries("denied_output_retract_attempt")), 2)
         # Admin retracts successfully.
-        self.app.handle_update(callback_update(ADMIN, f"task_retract:{code}"))
-        confirm = self.api.find_callback("task_retract_confirm:", suffix=code)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_retract:{web['id']}"))
+        confirm = self.api.find_callback("out_retract_confirm:")
         self.assertIsNotNone(confirm)
         self.app.handle_update(callback_update(ADMIN, confirm))
-        self.assertEqual(self.store.get_task(code)["status"], "RETRACTED")
-        self.assertEqual(len(self.store.audit_entries("retract_task")), 1)
-        # Creator was notified and a retracted task has no buttons.
+        self.assertEqual(
+            self.store.get_output(web["id"])["status"], "RETRACTED")
+        self.assertEqual(len(self.store.audit_entries("retract_output")), 1)
+        # Creator was notified.
         self.assertTrue(any(
             "đã bị thu hồi" in t for t in self.api.texts_to(CONTRIBUTOR)))
-        retracted = self.store.get_task(code)
-        self.assertIsNone(
-            self.app.task_keyboard(retracted, self.store.get_user(ADMIN)))
 
     # --------------------------------- new: per-channel outputs (Option A)
     def outputs_by_channel(self, code):
@@ -602,6 +629,8 @@ class BotTestCase(unittest.TestCase):
         task = self.create_contributor_task()
         code = task["code"]
         web = self.outputs_by_channel(code)["website"]
+        self.store.set_output_draft(
+            web["id"], "https://example.com/draft/web")
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"out_submit:{web['id']}"))
         self.assertEqual(
@@ -626,6 +655,8 @@ class BotTestCase(unittest.TestCase):
         task = self.create_contributor_task()
         code = task["code"]
         web = self.outputs_by_channel(code)["website"]
+        self.store.set_output_draft(
+            web["id"], "https://example.com/draft/web")
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"out_submit:{web['id']}"))
         self.app.handle_update(
@@ -646,6 +677,8 @@ class BotTestCase(unittest.TestCase):
         task = self.create_contributor_task()
         code = task["code"]
         fb = self.outputs_by_channel(code)["facebook"]
+        self.store.set_output_draft(
+            fb["id"], "https://example.com/draft/fb")
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"out_submit:{fb['id']}"))
         self.app.handle_update(
@@ -835,12 +868,16 @@ class Phase1TestCase(BotTestCase):
 
     def test_card_refreshes_in_place_on_submit(self):
         task = self.create_contributor_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(
+            web["id"], "https://example.com/draft/web")
         self.api.edits.clear()
         self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_submit:{task['code']}"))
+            callback_update(CONTRIBUTOR, f"out_submit:{web['id']}"))
         self.assertTrue(self.api.edits)
         edit = self.api.edits[-1]
         self.assertEqual(edit["chat_id"], CONTRIBUTOR)
+        self.assertIn("Thẻ kênh Website", edit["text"])
         self.assertIn("Chờ duyệt (PENDING)", edit["text"])
 
     def test_wizard_pinned_keyboard_and_label_advance(self):
@@ -850,12 +887,19 @@ class Phase1TestCase(BotTestCase):
         kb = (prompt["reply_markup"] or {}).get("keyboard", [])
         labels = [b["text"] for row in kb for b in row]
         self.assertIn("✅ Xong, sang bước gợi ý", labels)
-        # Every file ack re-attaches the inline Done button, so the
-        # newest message always carries it.
+        # Files are acknowledged by ONE counter message that is edited
+        # in place — no new message and no button block per photo.
         self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
-        ack = self.api.sent[-1]
-        self.assertIn("wiz_done_files", self.api.all_callback_data())
-        self.assertIn("Đã nhận file", ack["text"])
+        counters = [m for m in self.api.sent if "Đã nhận" in m["text"]]
+        self.assertEqual(len(counters), 1)
+        self.assertIn("Đã nhận 1 file", counters[0]["text"])
+        self.assertNotIn("wiz_done_files", self.api.all_callback_data())
+        sent_before = len(self.api.sent)
+        photo2 = [{"file_id": "photo2-small"}, {"file_id": "photo2-large"}]
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=photo2))
+        self.assertEqual(len(self.api.sent), sent_before)
+        edited = [e for e in self.api.edits if "Đã nhận 2 file" in (e["text"] or "")]
+        self.assertTrue(edited)
         # Tapping the pinned reply-keyboard Done button advances too.
         self.app.handle_update(
             message_update(CONTRIBUTOR, text="✅ Xong, sang bước gợi ý"))
@@ -929,8 +973,7 @@ class Phase1TestCase(BotTestCase):
 
     def test_choduyet_and_thongke_for_reviewers_only(self):
         task = self.create_contributor_task()
-        self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_submit:{task['code']}"))
+        self.attach_draft_and_submit(task["code"])
         self.api.sent.clear()
         self.app.handle_update(message_update(EDITOR, text="/choduyet"))
         self.assertTrue(any("CV-0001" in t for t in self.api.texts_to(EDITOR)))

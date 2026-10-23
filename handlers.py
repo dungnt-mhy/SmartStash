@@ -354,11 +354,7 @@ class BotApp:
             self.handle_command(command, user, tg_user, chat_id)
             return
 
-        # A reviewer who tapped "Trả lại" is expected to type the reason.
         state = self.store.get_user_state(user_id)
-        if state and state["state"] == "await_reject_reason" and text:
-            self._apply_reject_reason(user, chat_id, text, state["payload"])
-            return
 
         # A creator who tapped "Chỉnh sửa" is expected to type the new hint.
         if state and state["state"] == "await_edit_hint" and text:
@@ -483,7 +479,10 @@ class BotApp:
         self._maybe_download_files(task)
         self._send(chat_id, self.task_card_text(task),
                    reply_markup=self.task_keyboard(task, user))
-        self._notify_reviewers(task, exclude_id=user["telegram_id"])
+        # Option A: reviewers are NOT sent the (still empty) task card
+        # at creation — there is nothing to review yet. They receive
+        # each channel card when Muse attaches its draft (botctl
+        # attach-output-draft) and again when it is submitted.
         return task
 
     def _maybe_download_files(self, task):
@@ -533,6 +532,14 @@ class BotApp:
             if o["status"] != STATUS_CANCELLED
         ]
         if live_outputs:
+            have_drafts = sum(1 for o in live_outputs if o["draft_ref"])
+            if have_drafts == 0:
+                lines.append(
+                    "✍️ Bản nháp: chưa có — đang chờ Muse viết bài.")
+            else:
+                lines.append(
+                    f"✍️ Bản nháp: đã có {have_drafts}/{len(live_outputs)}"
+                    " kênh.")
             lines.append("Đầu ra theo kênh:")
             for output in live_outputs:
                 meta = CHANNELS.get(output["channel"], {})
@@ -544,10 +551,13 @@ class BotApp:
         return "\n".join(lines)
 
     def task_keyboard(self, task, viewer):
-        """Buttons on a task card, tailored to the viewer's permissions.
+        """Buttons on a task card: dossier management only.
 
-        The publish button is shown on a waiting card so the workflow is
-        discoverable; authorisation is enforced again in the callback.
+        Option A (2026-10-23): submitting, reviewing and publishing the
+        actual content happens on the per-channel cards
+        (``output_keyboard``), because that is where the draft lives.
+        The task card only edits the hint, picks the publish channels
+        and cancels the task.
         Closed tasks (CANCELLED / RETRACTED) show no buttons at all.
         """
         if viewer is None:
@@ -560,15 +570,7 @@ class BotApp:
         is_creator = viewer["telegram_id"] == task["creator_id"]
         is_admin = viewer["role"] == roles.ROLE_ADMIN
         if is_creator and status in (STATUS_DRAFT, STATUS_REJECTED):
-            rows.append([_btn("📤 Gửi duyệt", f"task_submit:{code}")])
             rows.append([_btn("✏️ Chỉnh sửa", f"task_edit:{code}")])
-        if roles.can_review(viewer["role"]) and status == STATUS_PENDING:
-            rows.append([
-                _btn("✅ Duyệt", f"task_approve:{code}"),
-                _btn("↩️ Trả lại", f"task_reject:{code}"),
-            ])
-        if status == STATUS_APPROVED_WAITING:
-            rows.append([_btn("🚀 Đăng bài", f"task_publish:{code}")])
         live_outputs = [
             o for o in self.store.list_outputs(code)
             if o["status"] != STATUS_CANCELLED
@@ -590,8 +592,6 @@ class BotApp:
             is_creator or is_admin
         ):
             rows.append([_btn("🗑 Thu hồi việc", f"task_cancel:{code}")])
-        if status == STATUS_PUBLISHED:
-            rows.append([_btn("↩️ Thu hồi bài đã đăng", f"task_retract:{code}")])
         return _keyboard(rows)
 
     def _notify_reviewers(self, task, exclude_id=None):
@@ -879,23 +879,15 @@ class BotApp:
             payload.setdefault("files", []).append(media_item["file_id"])
             if caption:
                 payload.setdefault("captions", []).append(caption)
-            self.store.set_user_state(user["telegram_id"], step, payload)
-            note = (
-                "Gửi thêm, hoặc bấm ✅ Xong ngay dưới đây."
-                if step == "wizard_files"
-                else "Đã thêm file vào việc đang tạo."
-            )
-            # The buttons ride on every ack, so the newest message in
-            # the chat always carries them, however many files were sent.
-            markup = _keyboard([
-                [_btn("✅ Xong, sang bước gợi ý", "wiz_done_files")],
-                [_btn("❌ Huỷ giao việc", "wiz_cancel")],
-            ]) if step == "wizard_files" else None
-            self._send(
-                chat_id,
-                f"Đã nhận file (tổng {len(payload['files'])}). {note}",
-                reply_markup=markup,
-            )
+            if step == "wizard_files":
+                # One single counter message, edited in place as files
+                # arrive — no fresh ack (and no fresh button block) per
+                # photo. The finish/cancel actions live on the pinned
+                # reply keyboard under the chat box.
+                self._wizard_file_counter(user, chat_id, payload)
+            else:
+                self.store.set_user_state(user["telegram_id"], step, payload)
+                self._send(chat_id, "Đã thêm file vào việc đang tạo.")
             return
         if not text:
             return
@@ -919,6 +911,27 @@ class BotApp:
             "Bước 3/3: Chọn nơi đăng cho việc này, rồi bấm ✅ Tạo việc.",
             reply_markup=self._wizard_channels_keyboard(payload),
         )
+
+    def _wizard_file_counter(self, user, chat_id, payload):
+        """Maintain the single 'files received' message of the wizard's
+        first step: send it once, then edit its count in place."""
+        count = len(payload.get("files") or [])
+        text = (
+            f"📎 Đã nhận {count} file cho việc này. Gửi thêm nếu cần; "
+            "xong thì bấm nút ✅ Xong ở bàn phím bên dưới."
+        )
+        message_id = payload.get("status_msg_id")
+        if message_id:
+            if self._edit_card(chat_id, message_id, text) is not None:
+                self.store.set_user_state(
+                    user["telegram_id"], "wizard_files", payload)
+                return
+            payload["status_msg_id"] = None
+        result = self._send(chat_id, text)
+        if isinstance(result, dict):
+            payload["status_msg_id"] = result.get("message_id")
+        self.store.set_user_state(
+            user["telegram_id"], "wizard_files", payload)
 
     def _wizard_channels_keyboard(self, payload):
         chosen = payload.get("destinations") or []
@@ -1408,128 +1421,27 @@ class BotApp:
                          show_alert=True)
             return
 
-        if action == "task_submit":
-            self._task_submit(callback_id, user, chat_id, task)
-        elif action == "task_approve":
-            self._task_approve(callback_id, user, chat_id, task)
-        elif action == "task_reject":
-            self._task_reject_start(callback_id, user, chat_id, task)
-        elif action == "task_publish":
-            self._task_publish(callback_id, user, chat_id, task)
-        elif action == "task_edit":
+        if action in (
+            "task_submit", "task_approve", "task_reject", "task_publish",
+            "task_retract", "task_retract_confirm",
+        ):
+            # Option A: these buttons only exist on stale cards sent
+            # before the flow moved to the channel cards.
+            self._answer(
+                callback_id,
+                "Luồng mới: duyệt và đăng bài ngay trên thẻ kênh, nơi "
+                "có bản nháp. Bấm 📋 Thẻ các kênh trên thẻ việc để mở.",
+                show_alert=True,
+            )
+            return
+        if action == "task_edit":
             self._task_edit_start(callback_id, user, chat_id, task)
         elif action == "task_cancel":
             self._task_cancel_start(callback_id, user, chat_id, task)
         elif action == "task_cancel_confirm":
             self._task_cancel_confirm(callback_id, user, chat_id, task)
-        elif action == "task_retract":
-            self._task_retract_start(callback_id, user, chat_id, task)
-        elif action == "task_retract_confirm":
-            self._task_retract_confirm(callback_id, user, chat_id, task)
         else:
             self._answer(callback_id, "Thao tác không hợp lệ.")
-
-    def _task_submit(self, callback_id, user, chat_id, task):
-        if task["creator_id"] != user["telegram_id"]:
-            self._answer(callback_id, "⛔ Chỉ người tạo việc mới gửi duyệt được.",
-                         show_alert=True)
-            return
-        if task["status"] not in (STATUS_DRAFT, STATUS_REJECTED):
-            self._answer(callback_id, "Việc này không ở trạng thái gửi duyệt được.",
-                         show_alert=True)
-            return
-        self.store.set_task_status(task["code"], STATUS_PENDING)
-        self.store.audit(user["telegram_id"], "submit_task", "task", task["code"])
-        self._answer(callback_id, "Đã gửi duyệt.")
-        updated = self.store.get_task(task["code"])
-        self._send(chat_id, f"📤 Việc {task['code']} đã được gửi duyệt.")
-        self._notify_reviewers(updated, exclude_id=user["telegram_id"])
-
-    def _task_approve(self, callback_id, user, chat_id, task):
-        if not roles.can_review(user["role"]):
-            self.store.audit(user["telegram_id"], "denied_approve_attempt",
-                             "task", task["code"], detail=f"role={user['role']}")
-            self._answer(callback_id, "⛔ Bạn không có quyền duyệt bài.",
-                         show_alert=True)
-            return
-        if task["status"] != STATUS_PENDING:
-            self._answer(callback_id, "Việc này chưa được gửi duyệt.",
-                         show_alert=True)
-            return
-        self.store.set_task_status(task["code"], STATUS_APPROVED_WAITING)
-        self.store.audit(user["telegram_id"], "approve_task", "task", task["code"])
-        self._answer(callback_id, "Đã duyệt, bài chuyển sang chờ đăng.")
-        updated = self.store.get_task(task["code"])
-        self._notify_creator(updated, prefix="✅ Bài của bạn đã được duyệt, đang chờ đăng:")
-
-    def _task_reject_start(self, callback_id, user, chat_id, task):
-        if not roles.can_review(user["role"]):
-            self.store.audit(user["telegram_id"], "denied_reject_attempt",
-                             "task", task["code"], detail=f"role={user['role']}")
-            self._answer(callback_id, "⛔ Bạn không có quyền trả lại bài.",
-                         show_alert=True)
-            return
-        if task["status"] != STATUS_PENDING:
-            self._answer(callback_id, "Việc này chưa được gửi duyệt.",
-                         show_alert=True)
-            return
-        self.store.set_user_state(
-            user["telegram_id"], "await_reject_reason", {"code": task["code"]}
-        )
-        self._answer(callback_id, "Hãy nhắn lý do trả lại.")
-        self._send(
-            chat_id,
-            f"↩️ Trả lại việc {task['code']}: hãy nhắn lý do trả lại "
-            "trong tin nhắn tiếp theo.",
-        )
-
-    def _apply_reject_reason(self, user, chat_id, reason, payload):
-        code = (payload or {}).get("code")
-        self.store.clear_user_state(user["telegram_id"])
-        task = self.store.get_task(code) if code else None
-        if task is None:
-            self._send(chat_id, "Không tìm thấy việc cần trả lại.")
-            return
-        if user is None or not roles.can_review(user["role"]):
-            self._send(chat_id, "⛔ Bạn không còn quyền trả lại bài.")
-            return
-        if task["status"] != STATUS_PENDING:
-            self._send(chat_id, "Việc này không còn ở trạng thái chờ duyệt.")
-            return
-        self.store.set_task_status(code, STATUS_REJECTED, reject_reason=reason)
-        self.store.audit(user["telegram_id"], "reject_task", "task", code,
-                         detail=f"reason={reason}")
-        self._send(chat_id, f"↩️ Đã trả lại việc {code} với lý do: {reason}")
-        updated = self.store.get_task(code)
-        self._notify_creator(
-            updated, prefix=f"↩️ Bài của bạn bị trả lại. Lý do: {reason}"
-        )
-
-    def _task_publish(self, callback_id, user, chat_id, task):
-        if not roles.can_publish(user):
-            # Especially important: contributors must never publish.
-            self.store.audit(
-                user["telegram_id"], "denied_publish_attempt", "task",
-                task["code"],
-                detail=f"role={user['role']} can_publish={bool(user['can_publish'])}",
-            )
-            self._answer(callback_id, "⛔ Bạn không có quyền đăng bài.",
-                         show_alert=True)
-            return
-        if task["status"] != STATUS_APPROVED_WAITING:
-            self._answer(callback_id, "Bài chưa ở trạng thái chờ đăng.",
-                         show_alert=True)
-            return
-        self.store.set_task_status(task["code"], STATUS_PUBLISHED)
-        self.store.audit(user["telegram_id"], "publish_task", "task", task["code"])
-        self._answer(callback_id, "Đã đăng bài.")
-        updated = self.store.get_task(task["code"])
-        self._notify_creator(updated, prefix="🚀 Bài của bạn đã được đăng:")
-        for admin in self.store.admins():
-            if admin["telegram_id"] != user["telegram_id"]:
-                self._send(admin["chat_id"],
-                           f"🚀 Việc {task['code']} vừa được đăng bởi "
-                           f"{user['display_name']}.")
 
     # ------------------------------------------- publish destination toggles
     def _task_dest(self, callback_id, user, chat_id, code, dest):
@@ -1572,6 +1484,7 @@ class BotApp:
         # deselected channels lose their DRAFT/PENDING output, newly
         # selected channels gain one.
         self.store.sync_outputs_for_task(updated)
+        self.store.sync_task_status_from_outputs(code)
         self._answer(callback_id, "Đã cập nhật nơi đăng.")
         self._send(chat_id, self.task_card_text(updated),
                    reply_markup=self.task_keyboard(updated, user))
@@ -1604,6 +1517,7 @@ class BotApp:
                          code, detail=json.dumps(chosen, ensure_ascii=False))
         updated = self.store.get_task(code)
         self.store.sync_outputs_for_task(updated)
+        self.store.sync_task_status_from_outputs(code)
         self._answer(callback_id, "Đã chọn tất cả nơi đăng.")
         # The tapped card itself is refreshed in place by
         # _refresh_tapped_card; no fresh card is sent here.
@@ -1710,52 +1624,6 @@ class BotApp:
         if task["creator_id"] != user["telegram_id"]:
             self._notify_creator(
                 updated, prefix="🗑 Việc của bạn đã bị Admin thu hồi:")
-
-    # --------------------------------------------------------- retract flow
-    def _task_retract_start(self, callback_id, user, chat_id, task):
-        if task["status"] != STATUS_PUBLISHED:
-            self._answer(callback_id, "Bài này chưa được đăng.",
-                         show_alert=True)
-            return
-        self._answer(callback_id)
-        markup = _keyboard([[
-            _btn("↩️ Xác nhận thu hồi bài đã đăng",
-                 f"task_retract_confirm:{task['code']}"),
-        ]])
-        self._send(
-            chat_id,
-            f"Thu hồi bài đã đăng của việc {task['code']}? "
-            "Bấm Xác nhận để thu hồi.",
-            reply_markup=markup,
-        )
-
-    def _task_retract_confirm(self, callback_id, user, chat_id, task):
-        if not roles.can_publish(user):
-            self.store.audit(
-                user["telegram_id"], "denied_retract_attempt", "task",
-                task["code"], detail=f"role={user['role']}",
-            )
-            self._answer(callback_id,
-                         "⛔ Bạn không có quyền thu hồi bài đã đăng.",
-                         show_alert=True)
-            return
-        if task["status"] != STATUS_PUBLISHED:
-            self._answer(callback_id, "Bài này không còn ở trạng thái đã đăng.",
-                         show_alert=True)
-            return
-        self.store.set_task_status(task["code"], STATUS_RETRACTED)
-        self.store.audit(user["telegram_id"], "retract_task", "task",
-                         task["code"])
-        self._answer(callback_id, "Đã thu hồi bài.")
-        updated = self.store.get_task(task["code"])
-        self._notify_creator(updated, prefix="↩️ Bài của bạn đã bị thu hồi:")
-        for admin in self.store.admins():
-            if admin["telegram_id"] != user["telegram_id"]:
-                self._send(
-                    admin["chat_id"],
-                    f"↩️ Việc {task['code']} (bài đã đăng) vừa bị thu hồi bởi "
-                    f"{user['display_name']}.\n" + self.task_card_text(updated),
-                )
 
     # ------------------------------------------------- per-channel outputs
     # Option A: each publish channel of a task has its own output record,
@@ -1910,10 +1778,21 @@ class BotApp:
                          "Thẻ kênh này không ở trạng thái gửi duyệt được.",
                          show_alert=True)
             return
+        if not output["draft_ref"]:
+            # Option A: submitting means submitting the actual draft —
+            # never an empty shell. Drafts arrive when Muse writes
+            # them and attaches them to this channel card.
+            self._answer(callback_id,
+                         "Kênh này chưa có bản nháp — Muse đang viết. "
+                         "Khi nháp được gắn vào, thẻ kênh sẽ được gửi "
+                         "lại để bạn gửi duyệt.",
+                         show_alert=True)
+            return
         self.store.set_output_status(output["id"], STATUS_PENDING)
         self.store.audit(user["telegram_id"], "submit_output", "output",
                          output["id"],
                          detail=f"task={task['code']} channel={output['channel']}")
+        self.store.sync_task_status_from_outputs(task["code"])
         self._answer(callback_id, "Đã gửi duyệt.")
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])
@@ -1943,6 +1822,7 @@ class BotApp:
         self.store.audit(user["telegram_id"], "approve_output", "output",
                          output["id"],
                          detail=f"task={task['code']} channel={output['channel']}")
+        self.store.sync_task_status_from_outputs(task["code"])
         self._answer(callback_id, "Đã duyệt, thẻ kênh chuyển sang chờ đăng.")
         updated = self.store.get_output(output["id"])
         label = CHANNELS.get(output["channel"], {}).get(
@@ -1998,6 +1878,7 @@ class BotApp:
                          output["id"],
                          detail=f"task={task['code']} "
                                 f"channel={output['channel']} reason={reason}")
+        self.store.sync_task_status_from_outputs(task["code"])
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])
         self._send(
@@ -2032,6 +1913,7 @@ class BotApp:
         self.store.audit(user["telegram_id"], "publish_output", "output",
                          output["id"],
                          detail=f"task={task['code']} channel={output['channel']}")
+        self.store.sync_task_status_from_outputs(task["code"])
         self._answer(callback_id, "Đã đăng.")
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])
@@ -2083,6 +1965,7 @@ class BotApp:
         self.store.audit(user["telegram_id"], "retract_output", "output",
                          output["id"],
                          detail=f"task={task['code']} channel={output['channel']}")
+        self.store.sync_task_status_from_outputs(task["code"])
         self._answer(callback_id, "Đã thu hồi.")
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])

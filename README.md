@@ -90,10 +90,11 @@ là tin nhắn mới như trước).
 Cách mới (khuyên dùng): bấm **📝 Giao việc mới** trên bàn phím chính
 (hoặc lệnh `/giaoviec`) rồi làm theo 3 bước bot hướng dẫn. Trong lúc
 giao việc, bàn phím tạm đổi thành các nút **✅ Xong** / **❌ Huỷ** luôn
-ghim ở phía dưới (khỏi phải kéo lên tìm nút trên tin nhắn cũ), mỗi tin
-xác nhận nhận file cũng gắn kèm nút Xong, và gõ chữ `xong` cũng chuyển
-bước được; tạo việc xong bàn phím chính tự quay lại. Cách cũ vẫn dùng
-được:
+ghim ở phía dưới (khỏi phải kéo lên tìm nút trên tin nhắn cũ); ở bước
+gửi file, bot chỉ giữ **một tin đếm số file và sửa số tại chỗ** khi có
+file mới — không gửi thêm tin xác nhận hay nút mới cho mỗi ảnh; gõ chữ
+`xong` cũng chuyển bước được; tạo việc xong bàn phím chính tự quay
+lại. Cách cũ vẫn dùng được:
 
 1. Gửi **ảnh hoặc tài liệu/slide** cho bot (chú thích/caption của ảnh
    được lưu làm gợi ý).
@@ -101,29 +102,43 @@ bước được; tạo việc xong bàn phím chính tự quay lại. Cách cũ
 3. Nhắn **một tin nhắn văn bản** (gợi ý, ví dụ:
    *"hội thảo nông nghiệp thông minh xã Chân Mộng, Phú Thọ"*) để chốt —
    bot tạo việc với mã `CV-0001`, `CV-0002`, … và gửi lại **thẻ việc**.
-4. Trên thẻ việc, người tạo bấm **📤 Gửi duyệt**. Biên tập viên/Admin
-   được bot thông báo để duyệt.
+4. Thẻ việc ghi rõ **"✍️ Bản nháp: chưa có — đang chờ Muse viết bài"**.
+   Muse viết bản nháp cho từng kênh rồi gắn vào **thẻ kênh** của kênh
+   đó; bot gửi thẻ kênh kèm bản nháp cho **người tạo và người duyệt**
+   ngay trong Telegram. Người duyệt **không** còn nhận thẻ việc rỗng
+   lúc mới tạo việc.
 
 Nhân viên viết bài có thể gửi thẳng bản thảo dạng văn bản (không cần ảnh)
 để tạo việc. Cộng tác viên **bắt buộc** gửi ảnh/tư liệu trước.
 
-### Duyệt và đăng bài (trên thẻ việc)
+### Duyệt và đăng bài (trên thẻ kênh)
+
+Từ ngày 2026-10-23, việc duyệt/đăng diễn ra **trên thẻ kênh** — nơi
+có bản nháp thật. Thẻ việc không còn nút Gửi duyệt/Duyệt/Đăng (bấm vào
+nút cũ trên thẻ đã gửi từ trước, bot sẽ hướng dẫn mở thẻ kênh).
 
 Thẻ việc luôn hiện: **Người tạo**, **Thời gian tạo** (giờ Việt Nam),
-nội dung/gợi ý, số file đính kèm và **Nơi đăng**.
+nội dung/gợi ý, số file đính kèm, **Nơi đăng**, dòng tiến trình
+**✍️ Bản nháp: đã có X/Y kênh** và tóm tắt trạng thái từng kênh.
+Trạng thái của thẻ việc được **tự suy ra từ các thẻ kênh** (có kênh
+chờ duyệt → việc chờ duyệt; mọi kênh đã đăng → việc đã đăng; …).
 
-- **📤 Gửi duyệt**: người tạo việc, khi việc ở trạng thái Nháp/Bị trả lại
-  → chuyển sang **Chờ duyệt (PENDING)**.
-- **✅ Duyệt**: Biên tập viên trở lên → chuyển sang
+Trên **thẻ kênh** của từng kênh (Website / Facebook / Instagram):
+
+- **📤 Gửi duyệt**: người tạo việc bấm trên thẻ kênh. **Chưa có bản
+  nháp thì không gửi duyệt được** — bot báo "kênh này chưa có bản
+  nháp" thay vì cho duyệt một cái vỏ rỗng. Có nháp → kênh chuyển sang
+  **Chờ duyệt (PENDING)** và bot gửi thẻ kênh cho người duyệt.
+- **✅ Duyệt**: Biên tập viên trở lên → kênh chuyển sang
   **Đã duyệt, chờ đăng (APPROVED_WAITING)**.
-- **↩️ Trả lại**: Biên tập viên trở lên bấm nút, rồi nhắn **lý do trả lại**
-  trong tin nhắn tiếp theo → việc quay về người tạo kèm lý do.
-- **🚀 Đăng bài**: chỉ **Admin**, hoặc Phó Admin/Biên tập viên đã được
-  Admin bật **quyền đăng (can_publish)**. Người không có quyền bấm vào sẽ
-  bị từ chối và lần bấm đó được ghi vào nhật ký.
-- **📋 Thẻ các kênh**: mở các **thẻ đầu ra riêng của từng kênh**
-  (Website / Facebook / Instagram) để duyệt và đăng **độc lập từng kênh**
-  — xem mục 5 bên dưới.
+- **↩️ Trả lại**: Biên tập viên trở lên bấm nút, rồi nhắn **lý do trả
+  lại** trong tin nhắn tiếp theo → thẻ kênh quay về người tạo kèm lý do.
+- **🚀 Đăng**: chỉ **Admin**, hoặc Phó Admin/Biên tập viên đã được
+  Admin bật **quyền đăng (can_publish)**. Người không có quyền bấm vào
+  sẽ bị từ chối và lần bấm đó được ghi vào nhật ký.
+- **↩️ Thu hồi**: trên thẻ kênh đã đăng, chỉ người **có quyền đăng**
+  mới xác nhận thu hồi được.
+- **📋 Thẻ các kênh** (trên thẻ việc): mở lại các thẻ kênh để thao tác.
 
 ### Chỉnh sửa, chọn nơi đăng, thu hồi (trên thẻ việc)
 
@@ -144,13 +159,8 @@ dùng link ngoài:
   lại), người tạo việc — hoặc Admin — bấm nút rồi bấm **Xác nhận thu
   hồi**. Việc chuyển sang **Đã hủy (CANCELLED)**, người duyệt được bot
   thông báo, và việc đã hủy không gửi duyệt lại được, thẻ việc không
-  còn nút thao tác.
-- **↩️ Thu hồi bài đã đăng**: khi việc đã ở trạng thái **Đã đăng
-  (PUBLISHED)**, bấm nút rồi bấm **Xác nhận thu hồi**. Chỉ người **có
-  quyền đăng** (Admin, hoặc người được bật `can_publish`) mới xác nhận
-  được; người khác bị từ chối và ghi nhật ký
-  (`denied_retract_attempt`). Việc chuyển sang **Đã thu hồi
-  (RETRACTED)** và bot báo cho người tạo + các Admin.
+  còn nút thao tác. Thu hồi **bài đã đăng** làm trên **thẻ kênh** của
+  kênh đó (nút ↩️ Thu hồi).
 
 Admin bật/tắt quyền đăng cho Phó Admin/Biên tập viên ngay trong luồng
 `/capquyen`, bằng nút **🔀 Bật/tắt quyền đăng bài** sau khi cấp quyền.
@@ -162,7 +172,10 @@ duyệt/đăng riêng**:
 
 - **Việc gốc (thẻ việc)** chỉ là **hồ sơ tư liệu**: ảnh/slide, gợi ý,
   người tạo, thời gian tạo và danh sách **nơi đăng** đã chọn. Việc gốc
-  vẫn có vòng đời riêng (gửi duyệt/duyệt/đăng/thu hồi) như trước.
+  **không còn vòng đời duyệt/đăng riêng** (từ 2026-10-23): trạng thái
+  của nó là bản tóm tắt tự suy ra từ các đầu ra, thẻ việc chỉ còn các
+  thao tác quản trị hồ sơ (chỉnh sửa gợi ý, chọn nơi đăng, thu hồi
+  việc).
 - **Mỗi kênh đăng là một đầu ra (output) riêng**, có bản ghi riêng
   trong bảng `outputs`, có **thẻ kênh riêng** trong Telegram và **vòng
   đời riêng**:
@@ -188,11 +201,10 @@ DRAFT / PENDING → CANCELLED (bỏ chọn kênh, hoặc việc gốc bị thu h
   và **↩️ Thu hồi** (người có quyền đăng). Nhờ vậy có thể **duyệt và
   đăng Facebook trước, Website sau** (hoặc ngược lại) mà không ảnh
   hưởng nhau; cộng tác viên bấm Đăng trên thẻ kênh vẫn bị từ chối và
-  ghi nhật ký như trên thẻ việc.
+  ghi nhật ký.
 - Khi **thu hồi việc gốc**, các đầu ra đang ở Nháp/Chờ duyệt của việc
-  đó cũng bị hủy theo. Khi **thu hồi bài trên thẻ việc gốc**, các đầu
-  ra **không** bị đụng vào — mỗi kênh có thao tác thu hồi riêng trên
-  thẻ kênh của nó.
+  đó cũng bị hủy theo. Thu hồi bài đã đăng chỉ làm **từng kênh** trên
+  thẻ kênh của kênh đó.
 
 Các kênh được định nghĩa sẵn trong `CHANNELS` (ở `storage.py`) theo
 kiểu dữ liệu danh sách: `website` (bài báo), `facebook` (post),
@@ -212,14 +224,15 @@ Instagram.
 | **Nhân viên viết bài** | Gửi ảnh/slide/gợi ý hoặc bản thảo của mình, tạo bài nháp, sửa bài của mình, gửi duyệt. Không duyệt bài người khác, không đăng |
 | **Cộng tác viên** | **Chỉ** gửi ảnh/tư liệu kèm gợi ý ngắn để Muse làm bài. Không duyệt, **không public** |
 
-Trạng thái bài viết:
+Trạng thái của từng đầu ra theo kênh (trạng thái thẻ việc là bản
+tóm tắt suy ra từ các đầu ra này):
 
 ```
 DRAFT (nháp) → PENDING (chờ duyệt) → APPROVED_WAITING (đã duyệt, chờ đăng)
              → PUBLISHED (đã đăng)
 PENDING → REJECTED (trả lại kèm lý do) → gửi duyệt lại
-DRAFT / PENDING / REJECTED → CANCELLED (người tạo hoặc Admin thu hồi việc)
-PUBLISHED → RETRACTED (người có quyền đăng thu hồi bài đã đăng)
+DRAFT / PENDING → CANCELLED (bỏ chọn kênh, hoặc việc gốc bị thu hồi)
+PUBLISHED → RETRACTED (người có quyền đăng thu hồi trên thẻ kênh)
 ```
 
 ## 7. Công cụ nội bộ cho Muse — `botctl.py`

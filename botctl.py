@@ -245,6 +245,7 @@ def cmd_set_output_published(store, args) -> int:
     store.audit(None, "set_output_published", "output", output["id"],
                 detail=f"task={args.task_code} channel={args.channel} "
                        f"public_url={args.public_url}")
+    store.sync_task_status_from_outputs(args.task_code)
     client = build_client_or_warn(args.no_notify)
     output = store.get_output(output["id"])
     _notify_output(store, client, task, output,

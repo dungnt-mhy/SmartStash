@@ -338,6 +338,42 @@ class Store:
                     (status, utcnow_iso(), code),
                 )
 
+    def sync_task_status_from_outputs(self, code: str):
+        """Derive the parent task's status from its channel outputs.
+
+        Option A (2026-10-23): review and publishing happen on the
+        per-channel cards, so the task itself no longer has its own
+        lifecycle — its status is a summary of the live outputs.
+        Terminal manual states (CANCELLED, or RETRACTED reached while
+        any output is not retracted) are left untouched.
+        """
+        task = self.get_task(code)
+        if task is None:
+            return None
+        if task["status"] == STATUS_CANCELLED:
+            return task
+        live = [
+            o for o in self.list_outputs(code)
+            if o["status"] != STATUS_CANCELLED
+        ]
+        if not live:
+            new = STATUS_DRAFT
+        elif all(o["status"] == STATUS_PUBLISHED for o in live):
+            new = STATUS_PUBLISHED
+        elif all(o["status"] == STATUS_RETRACTED for o in live):
+            new = STATUS_RETRACTED
+        elif any(o["status"] == STATUS_PENDING for o in live):
+            new = STATUS_PENDING
+        elif any(o["status"] == STATUS_APPROVED_WAITING for o in live):
+            new = STATUS_APPROVED_WAITING
+        elif any(o["status"] == STATUS_REJECTED for o in live):
+            new = STATUS_REJECTED
+        else:
+            new = STATUS_DRAFT
+        if new != task["status"]:
+            self.set_task_status(code, new)
+        return self.get_task(code)
+
     def set_task_hint(self, code: str, hint: str) -> None:
         with self._lock, self._conn:
             self._conn.execute(
