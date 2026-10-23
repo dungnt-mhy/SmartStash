@@ -1,0 +1,22 @@
+[Unit]
+Description=Telegram Bot Giao Viec (article workflow bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Egress on this VM goes through the runtime proxy. The proxy settings live
+# in a root-only EnvironmentFile (never in the workspace) because the bot
+# fails with SSL errors when it tries to reach Telegram directly.
+EnvironmentFile=-/etc/default/telegram-bot-giao-viec
+WorkingDirectory=/home/hatch/workspace/telegram-bot-giao-viec
+ExecStart=/usr/bin/python3 /home/hatch/workspace/telegram-bot-giao-viec/bot.py
+Restart=on-failure
+RestartSec=5
+# The bot token is NOT set here. It is resolved at runtime from the Muse
+# secure connection "custom.telegram" (credential surrogate). Only for a
+# local simulation may you uncomment the line below with a test-bot token:
+# Environment=TELEGRAM_BOT_TOKEN=
+
+[Install]
+WantedBy=multi-user.target

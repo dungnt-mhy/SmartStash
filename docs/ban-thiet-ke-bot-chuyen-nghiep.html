@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Bản thiết kế bot giao việc chuyên nghiệp</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <style>
+      :root{
+        --bg:#eef2f4; --surface:#ffffff; --surface-2:#f6f8f9; --ink:#16232c; --ink-2:#42586a;
+        --muted:#71828f; --line:#d9e2e8; --accent:#1d8ecf; --accent-deep:#1273ad; --accent-soft:#e2f2fb;
+        --ok:#2e9e5b; --ok-soft:#e3f4ea; --warn:#c47b12; --warn-soft:#fdf0dc; --bad:#cf4444; --bad-soft:#fbe7e7;
+        --chat-bg:#dfe9ec; --bubble-in:#ffffff; --bubble-out:#d5eefb; --phone:#0e1621;
+        --code-bg:#12222e; --code-ink:#cfe6f5; --shadow:0 18px 50px rgba(18,50,72,.16);
+        --r-lg:18px; --r-md:12px; --r-sm:8px;
+      }
+      @media (prefers-color-scheme: dark){
+        :root{
+          --bg:#0b1116; --surface:#141e26; --surface-2:#18242e; --ink:#e6eef3; --ink-2:#a9bcc7;
+          --muted:#7e93a1; --line:#26363f; --accent:#3aa7e0; --accent-deep:#6cc0ee; --accent-soft:#17333f;
+          --ok:#4cc07c; --ok-soft:#173527; --warn:#e0a04a; --warn-soft:#3a2c14; --bad:#e06a6a; --bad-soft:#3a1e1e;
+          --chat-bg:#0e1621; --bubble-in:#182533; --bubble-out:#2b5278;
+          --code-bg:#0a151d; --shadow:0 18px 50px rgba(0,0,0,.5);
+        }
+      }
+      *{ box-sizing:border-box; }
+      html{ scroll-behavior:smooth; }
+      body{
+        margin:0; background:var(--bg); color:var(--ink);
+        font-family:"Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size:16px; line-height:1.65; -webkit-font-smoothing:antialiased;
+      }
+      a{ color:var(--accent-deep); }
+      code, .mono{ font-family:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .wrap{ max-width:1120px; margin:0 auto; padding:0 20px; }
+
+      /* ---------- Intro ---------- */
+      .intro{ padding:44px 0 8px; }
+      .intro h1{ font-size:clamp(28px,4.4vw,42px); line-height:1.2; font-weight:800; margin:0 0 14px; letter-spacing:-.01em; }
+      .intro .lede{ font-size:clamp(16px,2vw,18.5px); color:var(--ink-2); max-width:760px; margin:0 0 18px; }
+      .factstrip{ display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 4px; }
+      .fact{ background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:6px 14px; font-size:13.5px; font-weight:600; color:var(--ink-2); }
+      .fact b{ color:var(--ink); }
+      .fact .dot{ color:var(--accent); }
+
+      /* ---------- Sections ---------- */
+      section{ padding:34px 0 6px; }
+      .sec-head{ display:flex; align-items:baseline; gap:14px; margin-bottom:6px; }
+      .sec-num{ font-family:"JetBrains Mono",monospace; font-size:14px; font-weight:600; color:var(--accent); border:1.5px solid var(--accent); border-radius:8px; padding:1px 8px; flex:none; transform:translateY(-2px); }
+      h2{ font-size:clamp(22px,3vw,29px); font-weight:800; margin:0; line-height:1.25; letter-spacing:-.01em; }
+      h3{ font-size:18px; font-weight:700; margin:26px 0 8px; }
+      .sec-sub{ color:var(--ink-2); max-width:820px; margin:4px 0 14px; }
+      p{ margin:0 0 12px; }
+      ul.tight{ margin:0 0 12px; padding-left:20px; }
+      ul.tight li{ margin-bottom:6px; }
+      .card{ background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); padding:22px 24px; margin:16px 0; }
+      .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+      .grid3{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+      @media (max-width:820px){ .grid2,.grid3{ grid-template-columns:1fr; } }
+
+      .callout{ border-radius:var(--r-md); padding:14px 18px; margin:14px 0; font-size:15px; }
+      .callout.warn{ background:var(--warn-soft); border:1px solid var(--warn); }
+      .callout.info{ background:var(--accent-soft); border:1px solid var(--accent); }
+      .callout b{ display:block; margin-bottom:2px; }
+
+      /* ---------- Tables ---------- */
+      .tbl-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:var(--r-md); margin:14px 0; background:var(--surface); }
+      table{ border-collapse:collapse; width:100%; font-size:14.5px; min-width:560px; }
+      th{ text-align:left; background:var(--surface-2); font-weight:700; padding:10px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+      td{ padding:9px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+      tr:last-child td{ border-bottom:none; }
+      td code, th code{ font-size:13px; background:var(--accent-soft); padding:1px 6px; border-radius:5px; white-space:nowrap; }
+      .num{ text-align:right; font-variant-numeric:tabular-nums; }
+
+      /* ---------- Code ---------- */
+      .codeblock{ background:var(--code-bg); color:var(--code-ink); border-radius:var(--r-md); padding:16px 18px; margin:12px 0; overflow-x:auto; position:relative; }
+      .codeblock pre{ margin:0; font-family:"JetBrains Mono",monospace; font-size:13px; line-height:1.6; white-space:pre; }
+      .copybtn{ position:absolute; top:10px; right:10px; background:rgba(255,255,255,.1); color:#dceef8; border:1px solid rgba(255,255,255,.22); border-radius:7px; font:600 12px "Be Vietnam Pro",sans-serif; padding:5px 11px; cursor:pointer; }
+      .copybtn:active{ transform:scale(.96); }
+
+      /* ---------- Demo layout ---------- */
+      .demo-grid{ display:grid; grid-template-columns:400px 1fr; gap:34px; align-items:start; }
+      @media (max-width:920px){ .demo-grid{ grid-template-columns:1fr; } .phone-col{ margin:0 auto; } }
+      .rolebar{ display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 18px; }
+      .rolebtn{ border:1.5px solid var(--line); background:var(--surface); color:var(--ink-2); border-radius:999px; padding:8px 16px; font:600 14px "Be Vietnam Pro",sans-serif; cursor:pointer; transition:border-color .15s,color .15s,background .15s; }
+      .rolebtn:hover{ border-color:var(--accent); color:var(--ink); }
+      .rolebtn.on{ background:var(--accent); border-color:var(--accent); color:#fff; }
+      .demo-note{ font-size:13.5px; color:var(--muted); margin-top:12px; max-width:400px; }
+
+      /* ---------- Phone mockup ---------- */
+      .phone{ width:378px; max-width:94vw; background:var(--phone); border-radius:38px; padding:11px; box-shadow:var(--shadow); position:relative; }
+      .screen{ background:var(--chat-bg); border-radius:29px; overflow:hidden; display:flex; flex-direction:column; height:640px; position:relative; }
+      .p-head{ background:#17212b; color:#fff; padding:12px 14px 10px; display:flex; align-items:center; gap:11px; flex:none; }
+      @media (prefers-color-scheme: light){ .p-head{ background:#ffffff; color:#16232c; box-shadow:0 1px 3px rgba(20,40,60,.14); z-index:2; } }
+      .p-ava{ width:40px; height:40px; border-radius:50%; background:#2AABEE; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#fff; flex:none; letter-spacing:.02em; }
+      .p-name{ font-weight:700; font-size:15px; line-height:1.25; }
+      .p-status{ font-size:12.5px; opacity:.62; line-height:1.3; }
+      .chat{ flex:1; overflow-y:auto; padding:12px 10px 8px; display:flex; flex-direction:column; gap:7px; scrollbar-width:thin; }
+      .msg{ max-width:86%; padding:8px 11px 6px; border-radius:12px; font-size:13.8px; line-height:1.5; box-shadow:0 1px 1.5px rgba(16,35,47,.16); animation:pop .18s ease-out; word-break:break-word; }
+      @keyframes pop{ from{ opacity:0; transform:translateY(4px);} to{ opacity:1; transform:none;} }
+      @media (prefers-reduced-motion: reduce){ .msg{ animation:none; } }
+      .msg.bot{ background:var(--bubble-in); color:var(--ink); align-self:flex-start; border-bottom-left-radius:4px; }
+      .msg.me{ background:var(--bubble-out); color:var(--ink); align-self:flex-end; border-bottom-right-radius:4px; }
+      @media (prefers-color-scheme: dark){ .msg.me{ color:#eaf4fb; } }
+      .msg .time{ display:block; text-align:right; font-size:10.5px; opacity:.55; margin-top:2px; }
+      .msg pre{ font-family:"JetBrains Mono",monospace; font-size:12px; line-height:1.55; margin:6px 0 2px; background:rgba(90,130,160,.12); border-radius:7px; padding:8px 9px; overflow-x:auto; white-space:pre; }
+      .msg .cap{ font-size:13px; margin-top:6px; }
+      .photo-ph{ border-radius:9px; height:128px; background:linear-gradient(135deg,#7fb98a 0%,#4d8f66 45%,#2f6e4c 100%); position:relative; overflow:hidden; margin:-2px -3px 0; }
+      .photo-ph::after{ content:""; position:absolute; inset:auto -20% -55% -20%; height:80%; background:radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.35), transparent 65%); }
+      .photo-ph span{ position:absolute; left:10px; bottom:8px; z-index:1; color:#fff; font-size:11.5px; font-weight:600; background:rgba(10,40,25,.45); padding:2px 8px; border-radius:20px; }
+      .doc-ph{ display:flex; align-items:center; gap:10px; }
+      .doc-ic{ width:38px; height:38px; border-radius:50%; background:#2e9e5b; color:#fff; display:flex; align-items:center; justify-content:center; flex:none; }
+      .doc-ic svg{ width:19px; height:19px; }
+      .chart-ph{ padding:4px 2px 0; }
+      .chart-row{ display:flex; align-items:center; gap:8px; margin:5px 0; font-size:11.5px; }
+      .chart-row .lab{ width:74px; flex:none; opacity:.75; }
+      .chart-row .bar{ height:13px; border-radius:3px; background:#2AABEE; min-width:3px; transition:width .4s ease; }
+      .chart-row .val{ font-weight:700; font-variant-numeric:tabular-nums; }
+      .ikb{ margin-top:8px; display:flex; flex-direction:column; gap:5px; }
+      .ikb-row{ display:flex; gap:5px; }
+      .ikb-btn{ flex:1; background:rgba(42,171,238,.14); color:var(--accent-deep); border:none; border-radius:8px; padding:8px 4px; font:600 12.8px "Be Vietnam Pro",sans-serif; cursor:pointer; text-align:center; transition:background .12s; }
+      @media (prefers-color-scheme: dark){ .ikb-btn{ color:#7cc6f2; background:rgba(42,171,238,.18); } }
+      .ikb-btn:hover{ background:rgba(42,171,238,.28); }
+      .ikb-btn:active{ transform:scale(.97); }
+      .ikb-btn.off{ opacity:.55; cursor:default; }
+      .ikb-btn.off:hover{ background:rgba(42,171,238,.14); }
+      .ikb-btn.off:active{ transform:none; }
+      .toast{ position:absolute; top:64px; left:50%; transform:translateX(-50%) translateY(-6px); background:rgba(16,28,38,.92); color:#fff; font-size:13px; font-weight:600; padding:8px 16px; border-radius:999px; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:5; max-width:88%; text-align:center; }
+      .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+      .cmdpop{ position:absolute; left:12px; right:12px; bottom:118px; background:var(--bubble-in); color:var(--ink); border-radius:14px; box-shadow:0 10px 34px rgba(10,30,45,.35); padding:8px; z-index:4; display:none; max-height:300px; overflow-y:auto; }
+      .cmdpop.open{ display:block; }
+      .cmdpop button{ display:flex; width:100%; gap:10px; align-items:baseline; background:none; border:none; padding:8px 10px; border-radius:9px; cursor:pointer; text-align:left; font-family:inherit; color:inherit; }
+      .cmdpop button:hover{ background:var(--accent-soft); }
+      .cmdpop .c{ font-family:"JetBrains Mono",monospace; font-weight:600; font-size:13.5px; color:var(--accent-deep); flex:none; }
+      .cmdpop .d{ font-size:12.8px; opacity:.72; }
+      .inputbar{ flex:none; display:flex; align-items:center; gap:8px; padding:8px 10px; background:transparent; }
+      .menubtn{ background:#2AABEE; color:#fff; border:none; font:700 13.5px "Be Vietnam Pro",sans-serif; padding:9px 15px; border-radius:999px; cursor:pointer; flex:none; box-shadow:0 2px 8px rgba(20,90,130,.3); }
+      .menubtn:active{ transform:scale(.96); }
+      .fakeinput{ flex:1; background:var(--bubble-in); color:var(--muted); border-radius:999px; padding:9px 15px; font-size:13.5px; white-space:nowrap; overflow:hidden; }
+      .sendbtn{ width:38px; height:38px; border-radius:50%; background:#2AABEE; border:none; display:flex; align-items:center; justify-content:center; flex:none; cursor:pointer; }
+      .sendbtn svg{ width:17px; height:17px; fill:#fff; margin-left:2px; }
+      .rkb{ flex:none; background:rgba(120,140,155,.16); padding:7px 8px 12px; display:grid; gap:6px; }
+      @media (prefers-color-scheme: dark){ .rkb{ background:#131c26; } }
+      .rkb-row{ display:grid; gap:6px; }
+      .rkb-btn{ background:var(--bubble-in); color:var(--ink); border:none; border-radius:9px; padding:10px 4px; font:600 13px "Be Vietnam Pro",sans-serif; cursor:pointer; box-shadow:0 1px 2px rgba(16,35,47,.14); }
+      .rkb-btn:active{ transform:scale(.97); background:var(--accent-soft); }
+
+      .layer-list{ display:flex; flex-direction:column; gap:12px; margin-top:6px; }
+      .layer{ background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); padding:15px 18px; }
+      .layer h4{ margin:0 0 4px; font-size:15.5px; }
+      .layer p{ margin:0; font-size:14.5px; color:var(--ink-2); }
+      .layer .tag{ float:right; font-family:"JetBrains Mono",monospace; font-size:11.5px; color:var(--accent-deep); background:var(--accent-soft); border-radius:6px; padding:2px 8px; font-weight:600; }
+
+      /* ---------- Misc components ---------- */
+      .pill-row{ display:flex; flex-wrap:wrap; gap:7px; margin:8px 0 2px; }
+      .pill{ font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--surface-2); border-radius:999px; padding:4px 12px; }
+      .checklist{ list-style:none; padding:0; margin:10px 0; }
+      .checklist li{ padding:9px 0 9px 34px; position:relative; border-bottom:1px solid var(--line); font-size:15px; }
+      .checklist li:last-child{ border-bottom:none; }
+      .checklist li::before{ content:""; position:absolute; left:2px; top:11px; width:17px; height:17px; border-radius:5px; border:2px solid var(--accent); }
+      .checklist li.done::before{ background:var(--accent); }
+      .checklist li.done::after{ content:""; position:absolute; left:7.5px; top:14px; width:5px; height:9px; border:solid #fff; border-width:0 2.5px 2.5px 0; transform:rotate(42deg); }
+      .timeline{ border-left:2.5px solid var(--line); margin:14px 0 6px 8px; padding-left:24px; display:flex; flex-direction:column; gap:15px; }
+      .tl-item{ position:relative; }
+      .tl-item::before{ content:""; position:absolute; left:-31.5px; top:5px; width:12px; height:12px; border-radius:50%; background:var(--surface); border:2.5px solid var(--accent); }
+      .tl-item .v{ font-family:"JetBrains Mono",monospace; font-weight:600; font-size:13.5px; color:var(--accent-deep); }
+      .tl-item p{ margin:2px 0 0; font-size:14.5px; color:var(--ink-2); }
+      .limit-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr)); gap:10px; margin:14px 0; }
+      .limit{ background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); padding:13px 15px; }
+      .limit .big{ font-size:21px; font-weight:800; line-height:1.2; }
+      .limit .small{ font-size:12.8px; color:var(--muted); line-height:1.45; margin-top:2px; }
+      .src-list{ font-size:14px; color:var(--ink-2); padding-left:20px; }
+      .src-list li{ margin-bottom:5px; word-break:break-all; }
+      footer{ padding:36px 0 52px; color:var(--muted); font-size:13.5px; }
+      .kbd-note{ font-size:13px; color:var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="intro">
+        <h1>Thiết kế bot giao việc chuyên nghiệp</h1>
+        <p class="lede">Bản phân tích và thiết kế giao diện đầy đủ cho bot <b>@iaict_media_bot</b> — từ nút Menu ở góc trái ô nhập liệu, các nút bấm hiện ngay khi bấm <code>/start</code>, cho tới màn hình thống kê. Mọi con số và cơ chế đều đối chiếu tài liệu Telegram Bot API chính thức, phiên bản mới nhất <b>10.3 (24/8/2026)</b>, và áp thẳng vào quy trình hiện tại của đội: nhân viên gửi ảnh + gợi ý → biên tập duyệt → admin đăng Website / Facebook / Instagram — và từ cùng tư liệu gốc đó, dựng thêm các đầu ra video dọc 9:16 và ngang 16:9 cho TikTok, YouTube Shorts và YouTube.</p>
+        <div class="factstrip">
+          <span class="fact"><span class="dot">●</span> Nền tảng: <b>Bot API 10.3</b></span>
+          <span class="fact">Kiến trúc: <b>Python thuần + long polling + SQLite</b> — giữ nguyên, không cần hạ tầng mới</span>
+          <span class="fact">Giao diện: <b>3 lớp</b> — Menu lệnh · Bàn phím theo vai · Nút inline trên thẻ việc</span>
+        </div>
+      </header>
+
+      <section id="demo">
+        <div class="sec-head"><span class="sec-num">01</span><h2>Thử ngay: mô phỏng bot theo từng vai trò</h2></div>
+        <p class="sec-sub">Chọn một vai trò rồi bấm thử: nút <b>Menu</b> ở góc trái, các nút bàn phím dưới ô nhập liệu và các nút trên thẻ việc đều bấm được. Đổi vai trò sẽ thấy menu và bàn phím thay đổi theo — đó chính là cơ chế phân quyền giao diện sẽ triển khai thật. Luồng nên thử: <b>Giao việc → Duyệt → Đăng từng kênh</b>, và <b>Thống kê → đổi kỳ → Biểu đồ</b>.</p>
+        <div class="rolebar" id="rolebar" role="tablist" aria-label="Chọn vai trò"></div>
+        <div class="demo-grid">
+          <div class="phone-col">
+            <div class="phone">
+              <div class="screen">
+                <div class="p-head">
+                  <div class="p-ava">IA</div>
+                  <div>
+                    <div class="p-name">IAICT Bot giao việc</div>
+                    <div class="p-status" id="pstatus">bot · đang trực</div>
+                  </div>
+                </div>
+                <div class="chat" id="chat" aria-live="polite"></div>
+                <div class="toast" id="toast"></div>
+                <div class="cmdpop" id="cmdpop"></div>
+                <div class="inputbar">
+                  <button class="menubtn" id="menubtn" type="button">Menu</button>
+                  <div class="fakeinput" id="fakeinput">Gửi ảnh kèm gợi ý, hoặc bấm nút bên dưới…</div>
+                  <button class="sendbtn" type="button" aria-label="Gửi"><svg viewBox="0 0 24 24"><path d="M3.4 20.4 21.8 12 3.4 3.6l-.01 6.53L14 12 3.39 13.87z"/></svg></button>
+                </div>
+                <div class="rkb" id="rkb"></div>
+              </div>
+            </div>
+            <p class="demo-note">Mô phỏng chạy ngay trên trang này để hình dung thiết kế; nội dung tin nhắn và số liệu trong mô phỏng là bản mẫu bố cục, bot thật lấy dữ liệu từ cơ sở dữ liệu việc của đội.</p>
+          </div>
+          <div>
+            <div class="layer-list">
+              <div class="layer"><span class="tag">setMyCommands</span><h4>Lớp 1 — Nút Menu (góc trái ô nhập)</h4><p>Mở danh sách lệnh của bot. Danh sách này <b>khác nhau theo từng người</b>: nhân viên chỉ thấy 4 lệnh cơ bản, admin thấy đủ 9 lệnh. Cài một lần lúc bot khởi động, cập nhật lại mỗi khi ai đó đổi vai trò.</p></div>
+              <div class="layer"><span class="tag">ReplyKeyboardMarkup</span><h4>Lớp 2 — Bàn phím chính theo vai trò</h4><p>Hiện ngay khi bấm <code>/start</code> và ghim cố định dưới ô nhập liệu như một thanh điều hướng của ứng dụng. Mỗi vai trò một bộ nút riêng. Bấm nút = bot nhận một tin nhắn văn bản đúng nhãn nút đó.</p></div>
+              <div class="layer"><span class="tag">InlineKeyboardMarkup</span><h4>Lớp 3 — Nút inline trên thẻ việc</h4><p>Nút Duyệt / Trả lại / Đăng từng kênh gắn ngay trên thẻ việc. Bấm xong bot <b>sửa luôn tin nhắn đó</b> (đổi trạng thái, đổi nút) chứ không gửi tin mới — cuộc trò chuyện luôn gọn, một việc = một thẻ.</p></div>
+              <div class="layer"><span class="tag">SQLite</span><h4>Lớp 0 — Dữ liệu nằm ở máy chủ bot</h4><p>Menu và nút bấm chỉ là lớp hiển thị. Mọi thao tác đều được kiểm tra quyền lại ở phía bot theo vai trò lưu trong SQLite — ẩn nút không bao giờ là cơ chế bảo mật duy nhất.</p></div>
+            </div>
+            <div class="callout info"><b>Vì sao tách 3 lớp?</b>Mỗi lớp giỏi một việc: Menu cho người rành lệnh và tính năng ít dùng; bàn phím chính cho thao tác hằng ngày, không cần nhớ lệnh; nút inline cho quyết định gắn với một việc cụ thể (duyệt, đăng). Bot nghiệp dư thường chỉ dùng một lớp; bot chuyên nghiệp dùng cả ba, mỗi lớp đúng chỗ của nó.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="menu">
+        <div class="sec-head"><span class="sec-num">02</span><h2>Nút Menu bên trái: cơ chế và bộ lệnh theo vai</h2></div>
+        <p class="sec-sub">Nút Menu gồm <b>hai phần cài độc lập</b>: nội dung danh sách lệnh (qua <code>setMyCommands</code>) và hành vi của nút (qua <code>setChatMenuButton</code>). Nút có 3 kiểu: mở danh sách lệnh (<code>commands</code>) — kiểu mặc định và là kiểu nên dùng; mở một Mini App (<code>web_app</code>) — để dành cho giai đoạn 4; và <code>default</code> — trả về mặc định toàn cục.</p>
+
+        <h3>Bộ lệnh đề xuất cho từng vai trò</h3>
+        <p>Giới hạn của Telegram: tối đa <b>100 lệnh</b>, tên lệnh 1–32 ký tự chỉ gồm chữ thường/dấu gạch dưới, mô tả 1–256 ký tự. 100 là trần kỹ thuật, không phải mục tiêu — menu dài quá 8 lệnh là người dùng không tìm thấy gì. Thiết kế giữ 4–9 lệnh mỗi vai:</p>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Lệnh</th><th>Mô tả hiển thị trong Menu</th><th class="num">CTV</th><th class="num">Nhân viên</th><th class="num">B.Tập viên</th><th class="num">Phó Admin</th><th class="num">Admin</th></tr></thead>
+          <tbody>
+            <tr><td><code>/start</code></td><td>Mở màn hình chính theo vai trò của bạn</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
+            <tr><td><code>/new</code></td><td>Giao việc mới — gửi ảnh kèm gợi ý</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
+            <tr><td><code>/my</code></td><td>Các việc tôi đã tạo / được giao</td><td class="num">—</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
+            <tr><td><code>/pending</code></td><td>Hàng chờ duyệt</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
+            <tr><td><code>/review</code></td><td>Duyệt việc đang chờ, lần lượt từng thẻ</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
+            <tr><td><code>/stats</code></td><td>Thống kê: hôm nay / tuần / tháng</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td><td class="num">✓</td></tr>
+            <tr><td><code>/export</code></td><td>Xuất báo cáo Excel / CSV</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td></tr>
+            <tr><td><code>/team</code></td><td>Quản lý nhân sự: cấp / thu hồi quyền</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td></tr>
+            <tr><td><code>/help</code></td><td>Hướng dẫn sử dụng bot</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
+          </tbody>
+        </table></div>
+        <p class="kbd-note">Nguyên tắc đặt tên theo tài liệu chính thức: động từ ngắn, cụ thể thắng chung chung — <code>/new</code> + luồng hỏi đáp tốt hơn một lệnh <code>/task</code> kèm tham số phức tạp. Ba lệnh toàn cục Telegram khuyến nghị mọi bot đều có: <code>/start</code>, <code>/help</code>, <code>/settings</code> (chỉ thêm khi thật sự có mục để người dùng tự chỉnh).</p>
+
+        <h3>Làm sao menu khác nhau theo từng người?</h3>
+        <p>Telegram không có khái niệm "scope theo vai trò". Cơ chế dùng được là <b>phạm vi lệnh theo từng cuộc trò chuyện</b> (<code>BotCommandScopeChat</code>): đặt bộ lệnh nền cho mọi chat riêng (<code>AllPrivateChats</code>), rồi ghi đè bộ dài hơn cho chat riêng của từng biên tập viên và admin (trong chat riêng, mã chat trùng mã người dùng). Mỗi khi ai đổi vai trong cơ sở dữ liệu, bot gọi lại <code>setMyCommands</code> cho đúng người đó. Trong nhóm đội, lệnh chỉ dành cho quản trị nhóm dùng phạm vi <code>ChatAdministrators</code> hoặc chỉ định từng người bằng <code>ChatMember</code>.</p>
+        <div class="codeblock"><button class="copybtn" type="button" data-copy="code-commands">Sao chép</button><pre id="code-commands"># Cài lúc bot khởi động — và gọi lại cho 1 người mỗi khi họ đổi vai trò
+BASE = [("start","Mở màn hình chính"), ("new","Giao việc mới — gửi ảnh kèm gợi ý"),
+        ("my","Các việc của tôi"), ("help","Hướng dẫn sử dụng")]
+EDITOR = BASE + [("pending","Hàng chờ duyệt"), ("review","Duyệt việc đang chờ")]
+ADMIN  = EDITOR + [("stats","Thống kê"), ("export","Xuất báo cáo Excel/CSV"),
+                   ("team","Quản lý nhân sự: cấp / thu hồi quyền")]
+
+api("setMyCommands", commands=BASE,   scope={"type":"all_private_chats"})
+api("setMyCommands", commands=EDITOR, scope={"type":"chat","chat_id":editor_id})
+api("setMyCommands", commands=ADMIN,  scope={"type":"chat","chat_id":admin_id})
+api("setChatMenuButton", menu_button={"type":"commands"})  # ghim hành vi nút Menu</pre></div>
+        <div class="callout warn"><b>Cảnh báo bảo mật từ chính tài liệu Telegram</b>Phạm vi lệnh chỉ là lớp trình bày, không phải phân quyền: bot không hề biết người dùng đã gõ lệnh từ menu nào, và người dùng có thể gõ bất kỳ lệnh nào tay không. Mọi lệnh — và mọi lần bấm nút — đều phải kiểm tra lại vai trò ở phía máy chủ bot. Menu khác nhau theo vai chỉ giúp giao diện gọn và đúng người, không thay thế kiểm tra quyền.</div>
+        <p><b>Đa ngôn ngữ:</b> <code>setMyCommands</code> nhận thêm mã ngôn ngữ ISO 639-1 (<code>language_code</code>) để dịch phần mô tả theo ngôn ngữ ứng dụng của từng người; tên lệnh vẫn giữ nguyên chữ Latin. Đội dùng tiếng Việt là chính nên thiết kế để mô tả mặc định bằng tiếng Việt, và cơ chế này sẵn sàng nếu sau này cần thêm tiếng Anh.</p>
+      </section>
+
+      <section id="keyboard">
+        <div class="sec-head"><span class="sec-num">03</span><h2>Bàn phím chính theo vai trò — "màn hình nhà" của bot</h2></div>
+        <p class="sec-sub">Đây là thứ người dùng nhìn thấy đầu tiên khi bấm <code>/start</code>: một bàn phím nút bấm thay cho bàn phím chữ, ghim cố định. Khác với menu lệnh, bàn phím <b>không đăng ký toàn cục</b> — nó đi kèm từng tin nhắn bot gửi cho từng người, nên cho mỗi người một bộ nút riêng là việc rất tự nhiên: tra vai trò trong SQLite rồi gửi đúng bộ của họ.</p>
+        <div class="grid2">
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 8px">Bộ nút đề xuất</h4>
+            <ul class="tight">
+              <li><b>Cộng tác viên:</b> 📤 Gửi tư liệu · ❓ Trợ giúp</li>
+              <li><b>Nhân viên:</b> 📥 Giao việc mới · 🗂 Việc của tôi · ❓ Trợ giúp</li>
+              <li><b>Biên tập viên:</b> thêm ✅ Hàng chờ duyệt</li>
+              <li><b>Phó Admin:</b> thêm 📊 Thống kê</li>
+              <li><b>Admin:</b> thêm 👥 Nhân sự — đủ 6 nút, 3 hàng</li>
+            </ul>
+            <p style="margin:0">Gửi lại bộ nút mới ngay khi vai trò thay đổi và mỗi lần <code>/start</code> — người dùng còn giữ bàn phím cũ trên máy cho tới khi bot gửi tin nhắn kèm bàn phím mới.</p>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 8px">Cấu hình chuẩn cho bàn phím chính</h4>
+            <ul class="tight">
+              <li><code>is_persistent: true</code> — luôn hiển thị, đúng chất thanh điều hướng ứng dụng</li>
+              <li><code>resize_keyboard: true</code> — co chiều cao vừa 2–3 hàng nút</li>
+              <li><code>one_time_keyboard: false</code> — <b>không</b> dùng cho bàn phím chính (nó tự ẩn sau một lần bấm, mâu thuẫn với ghim cố định); chỉ dùng cho lựa chọn một lần, ví dụ chọn kênh đăng</li>
+              <li><code>input_field_placeholder</code> (1–64 ký tự): "Gửi ảnh kèm gợi ý, hoặc bấm 📥 Giao việc mới…"</li>
+            </ul>
+          </div>
+        </div>
+        <h3>Bấm nút bàn phím thì bot nhận được gì?</h3>
+        <p>Đúng như suy đoán phổ biến — và tài liệu xác nhận: với nút thường, Telegram <b>gửi nhãn nút thành một tin nhắn văn bản bình thường</b>, hiện trong lịch sử trò chuyện, không có dữ liệu ẩn đi kèm. Bot ánh xạ nguyên văn nhãn (kể cả emoji) sang hành động:</p>
+        <div class="codeblock"><button class="copybtn" type="button" data-copy="code-reply">Sao chép</button><pre id="code-reply">REPLY_ACTIONS = {
+    "📥 Giao việc mới":  start_new_task,
+    "🗂 Việc của tôi":    my_tasks,
+    "✅ Hàng chờ duyệt": review_queue,   # vào handler vẫn kiểm tra vai trò lại
+    "📊 Thống kê":       stats,
+    "👥 Nhân sự":        team,
+    "❓ Trợ giúp":        help_msg,
+}
+handler = REPLY_ACTIONS.get(msg.text)  # khớp nguyên văn, gồm cả emoji</pre></div>
+        <ul class="tight">
+          <li><b>Nhãn nút là "giao thức"</b>: đổi tên nút là thay đổi phá vỡ tương thích với bàn phím cũ còn nằm trên máy người dùng — đặt tên ổn định ngay từ đầu, không nhét mã việc hay thông tin nhạy cảm vào nhãn.</li>
+          <li>Người dùng gõ tay đúng dòng chữ đó cũng phải chạy cùng một hành động — và vẫn kiểm tra quyền như thường.</li>
+          <li>Từ Bot API 9.4, nút bấm có thêm <code>style</code> tô màu (<code>success</code> xanh lá, <code>danger</code> đỏ, <code>primary</code> xanh dương) và biểu tượng emoji tuỳ chỉnh — dùng tiết chế cho nút quan trọng như Duyệt / Đăng.</li>
+          <li>Gỡ bàn phím khi cần (kết thúc luồng, hạ quyền) bằng <code>ReplyKeyboardRemove</code>; ép trả lời đúng một câu hỏi (ví dụ "gõ lý do trả lại") bằng <code>ForceReply</code>.</li>
+        </ul>
+      </section>
+
+      <section id="inline">
+        <div class="sec-head"><span class="sec-num">04</span><h2>Thẻ việc và nút inline: sửa tại chỗ, không xả tin mới</h2></div>
+        <p class="sec-sub">Nút inline gắn trực tiếp trên từng tin nhắn và gửi về bot một gói dữ liệu ẩn (<code>callback_data</code>) khi được bấm. Đây là lớp gánh toàn bộ thao tác có trạng thái: duyệt, trả lại, đăng từng kênh, lật trang danh sách, đổi kỳ thống kê.</p>
+        <div class="grid2">
+          <div>
+            <h3 style="margin-top:6px">Quy tắc vàng: sửa, đừng gửi mới</h3>
+            <div class="tbl-wrap" style="margin-top:8px"><table style="min-width:0">
+              <thead><tr><th>Tình huống</th><th>Cách xử lý</th></tr></thead>
+              <tbody>
+                <tr><td>Đổi trạng thái trên thẻ chữ / lật trang</td><td><code>editMessageText</code></td></tr>
+                <tr><td>Đổi trạng thái trên thẻ có ảnh (ghi vào chú thích ảnh, tối đa 1024 ký tự)</td><td><code>editMessageCaption</code></td></tr>
+                <tr><td>Chỉ đổi hàng nút</td><td><code>editMessageReplyMarkup</code></td></tr>
+                <tr><td>Đổi ảnh</td><td><code>editMessageMedia</code></td></tr>
+                <tr><td>Thông báo cho người khác (tác giả việc)</td><td>Gửi tin mới — sửa thẻ của biên tập viên không làm điện thoại tác giả rung</td></tr>
+              </tbody>
+            </table></div>
+            <p>Lưu <code>chat_id</code> + <code>message_id</code> của mọi thẻ việc vào SQLite ngay khi gửi — đó là "tay nắm" duy nhất để sửa thẻ về sau. Bắt lỗi quen thuộc <i>"message is not modified"</i> (gửi nội dung y hệt cũ) và coi như thành công.</p>
+          </div>
+          <div>
+            <h3 style="margin-top:6px">Mã hoá dữ liệu nút: tối đa 64 byte</h3>
+            <p><code>callback_data</code> chỉ chứa được <b>1–64 byte</b> — nhồi JSON hay tiêu đề việc vào sẽ bị Telegram từ chối cả tin nhắn (lỗi <code>BUTTON_DATA_INVALID</code>). Quy ước mã ngắn, trạng thái thật nằm trong SQLite:</p>
+            <div class="codeblock"><pre>a:123          Duyệt việc 123
+r:123          Trả lại việc 123
+v:123          Xem chi tiết việc 123
+pub:123:f      Đăng việc 123 lên Facebook  (w/f/i = Web/FB/IG)
+lst:2          Danh sách việc, trang 2
+st:w           Thống kê kỳ tuần  (d/w/m = ngày/tuần/tháng)
+noop           Nút chỉ hiển thị (ví dụ "2/5")</pre></div>
+            <p>Cần dữ liệu lớn hơn 64 byte: đặt một mã token ngắn ngẫu nhiên vào nút, payload thật để trong SQLite tra theo token.</p>
+          </div>
+        </div>
+        <h3>Phản hồi khi bấm nút — <code>answerCallbackQuery</code></h3>
+        <ul class="tight">
+          <li>Telegram quay vòng loading trên nút cho tới khi bot trả lời callback — <b>luôn trả lời đầu tiên</b>, trước khi xử lý đăng bài hay ghi dữ liệu.</li>
+          <li>Thông báo nhỏ thoáng qua (toast, tối đa 200 ký tự) cho thành công: "✅ Đã duyệt CV-0001".</li>
+          <li>Hộp thoại bắt buộc bấm OK (<code>show_alert: true</code>) cho lỗi và hành động nguy hiểm: "Việc này đã bị trả lại bởi Lan lúc 09:41".</li>
+          <li><b>Kiểm tra quyền ngay trong handler callback</b> theo người bấm (<code>callback_query.from.id</code>) — bất kỳ ai nhìn thấy tin nhắn đều bấm được nút trên đó, kể cả bản được chuyển tiếp.</li>
+          <li><b>Phân trang:</b> một tin nhắn danh sách duy nhất, mỗi dòng một việc, hàng điều hướng [◀] [2/5] [▶] và [🔄 Làm mới] [✖ Đóng]; 5–8 việc mỗi trang để không vượt trần 4096 ký tự của một tin nhắn. Từ Bot API 10.3 có thêm nút <code>disabled</code> thật cho nút chỉ-hiển-thị như số trang.</li>
+        </ul>
+      </section>
+
+      <section id="stats">
+        <div class="sec-head"><span class="sec-num">05</span><h2>Thống kê: làm gọn trong Telegram trước, Mini App sau</h2></div>
+        <p class="sec-sub">Một sự thật cần biết trước: <b>Bot API không có hàm nào trả thống kê sử dụng của chính bot</b> — mọi con số phải tự tính từ SQLite của đội (việc theo trạng thái, tác giả, người duyệt, thời điểm tạo/duyệt/đăng, kênh đăng). Telegram chỉ cung cấp 4 định dạng để trình bày, và bot chuyên nghiệp kết hợp cả 4:</p>
+        <div class="grid2">
+          <div class="card" style="margin:0"><h4 style="margin:0 0 6px">1 · Tóm tắt dạng chữ — mặc định của <code>/stats</code></h4><p style="margin:0">Một tin nhắn HTML: số việc hôm nay / tuần này (tạo mới, chờ duyệt, đã duyệt, đã trả, đã đăng), thống kê theo từng người, việc chờ lâu nhất. Khối <code>&lt;pre&gt;</code> để căn cột số thẳng hàng trên điện thoại. Nút inline [Hôm nay | Tuần | Tháng] đổi kỳ bằng cách sửa chính tin nhắn đó.</p></div>
+          <div class="card" style="margin:0"><h4 style="margin:0 0 6px">2 · Ảnh biểu đồ</h4><p style="margin:0">Vẽ biểu đồ PNG bằng matplotlib rồi <code>sendPhoto</code> kèm chú thích tóm tắt (≤1024 ký tự). Đây là mẫu đã được nhiều bot mã nguồn mở dùng thực tế — biểu đồ sinh theo yêu cầu khi bấm nút, không cần dịch vụ ngoài.</p></div>
+          <div class="card" style="margin:0"><h4 style="margin:0 0 6px">3 · Xuất file Excel / CSV</h4><p style="margin:0">CSV bằng thư viện chuẩn Python, hoặc XLSX bằng openpyxl (nhiều sheet: Việc / Theo người / Theo ngày), gửi bằng <code>sendDocument</code> với tên file dạng <code>tasks_2026-10-01_2026-10-23.xlsx</code>. Số trong chat là bản tóm tắt; file mới là bản lưu trữ chính thức. Trần gửi file của bot: 50 MB — thừa sức cho báo cáo.</p></div>
+          <div class="card" style="margin:0"><h4 style="margin:0 0 6px">4 · Bảng tin ghim trong nhóm</h4><p style="margin:0">Một tin nhắn ghim (<code>pinChatMessage</code>) trong nhóm đội, bot tự sửa mỗi khi trạng thái đổi: "⏳ Chờ duyệt: 3 · ✅ Hôm nay: 7" kèm nút [Hàng chờ duyệt]. Cộng thêm bản tổng kết ngày tự gửi theo lịch — Bot API không có cron, việc hẹn giờ do tiến trình bot tự lo.</p></div>
+        </div>
+        <h3>Chỉ số video — bổ sung khi mở kênh Video (mục 06)</h3>
+        <p>Từ khi có đầu ra video, <code>/stats</code> và file xuất báo cáo cộng thêm một nhóm chỉ số riêng, vẫn tính từ SQLite (trạng thái các thẻ kênh Video và link đã đăng ghi trên từng thẻ):</p>
+        <ul class="tight">
+          <li><b>Số video đã tạo</b> trong kỳ — tách theo đầu ra: dọc 9:16 / ngang 16:9.</li>
+          <li><b>Số video đã đăng theo từng nền tảng:</b> YouTube · TikTok · Facebook · Instagram (mỗi lần đăng thành công đều ghi link về thẻ kênh, nên đếm được và truy được).</li>
+          <li><b>Tỷ lệ video nháp được duyệt / bị trả lại</b> — đo chất lượng bản dựng đầu và mức phải làm lại.</li>
+          <li><b>Số việc "kép":</b> việc cho ra đồng thời bài viết và video — chỉ số cho thấy tư liệu gốc đang được tận dụng tới đâu.</li>
+        </ul>
+        <div class="callout info"><b>Khi nào mới cần lên Mini App?</b>Khi admin cần lọc tự do (theo người × trạng thái × khoảng ngày), sắp xếp bảng, hoặc duyệt/đăng hàng loạt. Trước mốc đó, <code>/stats</code> dạng chữ + biểu đồ PNG + file Excel đã phủ gần hết nhu cầu — chi tiết ở mục 07.</div>
+      </section>
+
+      <section id="video">
+        <div class="sec-head"><span class="sec-num">06</span><h2>Mảng Video: hai đầu ra mới trong cùng kiến trúc thẻ kênh</h2></div>
+        <p class="sec-sub">Theo kiến trúc đã chốt — mỗi kênh đăng có một thẻ duyệt/đăng riêng trong Telegram, việc gốc chỉ là hồ sơ tư liệu — video không cần một hệ thống riêng. Nó chỉ là <b>thêm hai đầu ra nữa</b> bên cạnh Website / Facebook / Instagram, và một việc có thể cho ra đồng thời bài viết ở các kênh chữ/ảnh <b>và</b> video, mỗi thẻ kênh độc lập: thẻ nào được duyệt mới đăng ở kênh đó.</p>
+        <div class="grid2">
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 6px">Đầu ra 1 — Video dọc 9:16</h4>
+            <p style="margin:0 0 8px">Định dạng của video ngắn di động. Một bản dựng dọc dùng chung cho ba đích đăng:</p>
+            <div class="pill-row"><span class="pill">TikTok</span><span class="pill">YouTube Shorts</span><span class="pill">Facebook / Instagram Reels</span></div>
+            <p style="margin:8px 0 0">Thẻ kênh riêng trong Telegram: trạng thái dựng nháp → chờ duyệt → đã duyệt → đã đăng (kèm link từng nền tảng).</p>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 6px">Đầu ra 2 — Video ngang 16:9</h4>
+            <p style="margin:0 0 8px">Định dạng chuẩn của YouTube và video nhúng trên website / bài Facebook dài. Đích đăng chính:</p>
+            <div class="pill-row"><span class="pill">YouTube</span><span class="pill">Website (nhúng)</span></div>
+            <p style="margin:8px 0 0">Thẻ kênh riêng, độc lập với thẻ dọc: một việc có thể chỉ làm dọc, chỉ làm ngang, hoặc cả hai.</p>
+          </div>
+        </div>
+        <p>Mã nút cho hai thẻ video nối tiếp quy ước ở mục 04, vẫn gọn trong 64 byte:</p>
+        <div class="codeblock"><pre>vd:123       Mở thẻ Video dọc 9:16 của việc 123
+vh:123       Mở thẻ Video ngang 16:9 của việc 123
+va:123:d     Duyệt video nháp dọc của việc 123   (h = ngang)
+vr:123:d     Trả lại video nháp kèm lý do
+vp:123:d     Đăng video dọc đã duyệt</pre></div>
+
+        <h3>Quy trình: từ tư liệu gốc của việc tới video đã duyệt</h3>
+        <ul class="tight">
+          <li><b>Bước 1 — Dùng lại tư liệu gốc:</b> ảnh/slide và gợi ý của việc là nguyên liệu chung; không ai phải gửi lại. Trên thẻ việc có thêm nút [🎬 Tạo video] chọn đầu ra dọc / ngang / cả hai.</li>
+          <li><b>Bước 2 — Muse dựng bản nháp:</b> ghép ảnh với hiệu ứng chuyển động (pan/zoom trên từng ảnh), chèn chữ tiêu đề và chú thích theo gợi ý, thêm nhạc nền; bài viết đi cùng video (tiêu đề, mô tả, hashtag) được soạn riêng cho từng nền tảng từ cùng tư liệu — nhất quán với quy tắc mỗi kênh viết một kiểu. Khi tư liệu ảnh không đủ kể câu chuyện, Muse có thể tạo thêm cảnh quay bằng AI.</li>
+          <li><b>Bước 3 — Gửi nháp vào Telegram để xem trước:</b> file video nháp được gửi thẳng vào cuộc trò chuyện, phát xem ngay trên thẻ kênh Video, kèm bài viết đi cùng để duyệt một thể. Bot gửi file được tới 50 MB — bản nháp xem trước có thể nén nhẹ cho nhanh, bản đăng giữ chất lượng theo yêu cầu của nền tảng đích.</li>
+          <li><b>Bước 4 — Duyệt trên thẻ kênh Video:</b> người duyệt xem video ngay trong Telegram rồi bấm <b>Duyệt</b> hoặc <b>Trả lại kèm lý do</b> (sửa chữ, đổi nhạc, thay ảnh…). <b>Chưa duyệt thì không đăng</b> — đúng quy tắc đang áp cho mọi kênh chữ/ảnh.</li>
+          <li><b>Bước 5 — Đăng và ghi link:</b> sau khi duyệt, Muse đăng lên nền tảng đích của thẻ; link video đã đăng được ghi về đúng thẻ kênh để tra cứu và tính vào thống kê (mục 05).</li>
+        </ul>
+
+        <h3>Kênh đăng video tương lai: YouTube và TikTok do Muse quản lý</h3>
+        <div class="grid2">
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 6px">YouTube — kênh chính cho video ngang + Shorts</h4>
+            <ul class="tight" style="margin-bottom:0">
+              <li><b>Cần kết nối:</b> một tài khoản Google có kênh YouTube, và cấp quyền tải lên cho phía Muse qua cơ chế uỷ quyền của Google (OAuth / YouTube Data API) — tương tự cách đã nối Facebook/Instagram.</li>
+              <li><b>Ràng buộc cần kiểm chứng khi triển khai:</b> hạn mức (quota) tải lên theo ngày của API, yêu cầu xác minh của kênh, và phạm vi quyền được cấp — kiểm tra thực tế trên chính kênh của đội ở giai đoạn 3, không suy đoán trước.</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 6px">TikTok — kênh chính cho video dọc</h4>
+            <ul class="tight" style="margin-bottom:0">
+              <li><b>Cần kết nối:</b> tài khoản TikTok của đội và một ứng dụng TikTok dành cho nhà phát triển được TikTok duyệt (app review) để đăng qua API chính thức (Content Posting API).</li>
+              <li><b>Ràng buộc thực tế:</b> với tài khoản/ứng dụng chưa được duyệt, API của TikTok giới hạn mạnh việc đăng công khai (ví dụ video chỉ ở chế độ riêng tư) — đây là điểm phải kiểm chứng đầu tiên ở giai đoạn 3. Phương án dự phòng nếu API chưa qua được duyệt: giữ nguyên luồng duyệt trong Telegram, còn thao tác đăng do Muse thực hiện qua trình duyệt bằng phiên đăng nhập của chủ tài khoản — đúng cách đang chạy với Facebook.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout info"><b>Luồng duyệt không đổi theo nền tảng</b>Dù đích đăng là Website, Facebook, Instagram, YouTube hay TikTok: duyệt nội dung trong Telegram là chốt cuối duy nhất. Muse chỉ đăng sau khi thẻ kênh tương ứng đã ở trạng thái Đã duyệt, và luôn ghi link đã đăng về thẻ — người dùng không bao giờ phải tự đi tìm bài của mình đã lên chưa.</div>
+      </section>
+
+      <section id="miniapp">
+        <div class="sec-head"><span class="sec-num">07</span><h2>Mini App: bảng điều khiển cho admin — giai đoạn 4</h2></div>
+        <p class="sec-sub">Mini App là một trang web HTML5 chạy ngay trong Telegram. Nó là hạng mục duy nhất trong bản thiết kế này <b>phát sinh hạ tầng mới</b>: tên miền + HTTPS công khai + một máy chủ web + giao diện web riêng — trong khi bot hiện tại chạy long polling không cần gì cả. Vì vậy lộ trình đúng là: làm native thật tốt trước, Mini App chỉ làm một bảng điều khiển dành riêng admin khi thống kê dạng chat không còn đủ.</p>
+        <div class="grid2">
+          <div>
+            <h3 style="margin-top:6px">Điểm mở Mini App cho đúng người</h3>
+            <ul class="tight">
+              <li><b>Nút Menu riêng cho admin:</b> gọi <code>setChatMenuButton</code> với <code>chat_id</code> của admin và kiểu <code>web_app</code> (nhãn "Dashboard") — admin mở bot thấy nút mở bảng điều khiển, mọi người khác vẫn thấy nút mở danh sách lệnh.</li>
+              <li>Các điểm mở khác: nút inline, nút bàn phím (chỉ trong chat riêng), link trực tiếp <code>t.me/&lt;bot&gt;?startapp=…</code>, trang hồ sơ bot.</li>
+              <li>Thiết kế mobile-first, bám biến màu chủ đề của Telegram (<code>themeParams</code>) để khớp sáng/tối, dùng nút Back và nút chính của khung Mini App cho hành động quan trọng.</li>
+            </ul>
+          </div>
+          <div>
+            <h3 style="margin-top:6px">Xác thực — bắt buộc, không có ngoại lệ</h3>
+            <p>Telegram gửi kèm dữ liệu người dùng (<code>initData</code>), nhưng bản đã giải mã phía client (<code>initDataUnsafe</code>) <b>tuyệt đối không được tin</b>. Máy chủ phải kiểm lại chữ ký trên <b>mọi yêu cầu</b>:</p>
+            <ul class="tight">
+              <li>Ghép "chuỗi kiểm tra": mọi cặp <code>key=value</code> (trừ <code>hash</code>) sắp xếp theo bảng chữ cái, nối bằng ký tự xuống dòng.</li>
+              <li>Khoá bí mật = HMAC-SHA256 với khoá là chuỗi <code>"WebAppData"</code> và dữ liệu là token bot.</li>
+              <li>Hợp lệ khi HMAC-SHA256 của chuỗi kiểm tra (theo khoá bí mật trên) bằng đúng <code>hash</code> nhận được — so sánh theo thời gian hằng định.</li>
+              <li>Kiểm thêm <code>auth_date</code> còn tươi để chống phát lại gói dữ liệu cũ; sau khi xác thực mới lấy <code>user.id</code> tra vai trò trong SQLite — danh tính Telegram đã xác thực vẫn không tự nó là quyền admin.</li>
+            </ul>
+          </div>
+        </div>
+        <p>Từ Bot API 10.2, Telegram mặc định chặn các phương thức JS-API của Mini App nếu trang bị nhúng từ tên miền khác với tên miền gốc — giữ Mini App khép kín trên một tên miền duy nhất, không nhúng widget bên thứ ba cần API của Telegram.</p>
+      </section>
+
+      <section id="features">
+        <div class="sec-head"><span class="sec-num">08</span><h2>Tính năng Bot API mới (2024–2026) đáng dùng cho bot này</h2></div>
+        <p class="sec-sub">Phiên bản hiện tại là <b>10.3</b>. Không có thay đổi nào trong các bản 9.x–10.x phá vỡ mô hình gửi tin / nút inline / long polling hiện tại — tất cả là lớp cộng thêm. Những mục liên quan trực tiếp đến bot giao việc:</p>
+        <div class="timeline">
+          <div class="tl-item"><span class="v">9.1 · 3/7/2025</span><p><b>Checklist</b> (danh sách việc tích ô) xuất hiện nhưng chỉ gửi được thay mặt tài khoản doanh nghiệp đã kết nối — <b>không</b> thay thế được danh sách việc trong SQLite + nút inline cho luồng bot ↔ người dùng thường. Ghi nhận để không đi nhầm đường.</p></div>
+          <div class="tl-item"><span class="v">9.2 · 15/8/2025</span><p><b>Bài đề xuất (Suggested Posts)</b> cho kênh — chỉ đáng cân nhắc nếu sau này mô hình đăng bài đổi thành đề xuất bài vào một kênh do bot quản trị. Mô hình đăng Website/FB/IG hiện tại không cần.</p></div>
+          <div class="tl-item"><span class="v">9.3 · 31/12/2025</span><p><b>Chủ đề (topics) trong chat riêng</b> và bản nháp tin nhắn trực tiếp (<code>sendMessageDraft</code>): có thể tách các luồng "Chờ duyệt / Đã đăng / Thống kê" thành từng chủ đề cho admin. Tuỳ chọn — mức hỗ trợ giữa các ứng dụng Telegram còn chênh nhau.</p></div>
+          <div class="tl-item"><span class="v">9.4 · 9/2/2026</span><p>Nút bấm có <b>màu style</b> (xanh lá / đỏ / xanh dương) và biểu tượng emoji tuỳ chỉnh; đặt <b>ảnh đại diện bot bằng API</b> (<code>setMyProfilePhoto</code>) không cần qua BotFather.</p></div>
+          <div class="tl-item"><span class="v">9.5 · 1/3/2026</span><p><code>sendMessageDraft</code> mở cho mọi bot (hiện bản nháp khi bot đang xử lý lâu, ví dụ lúc tạo báo cáo) và kiểu thực thể <code>date_time</code> — hiển thị ngày giờ hạn chót theo đúng định dạng máy người xem.</p></div>
+          <div class="tl-item"><span class="v">10.0 · 8/5/2026</span><p><b>Chế độ khách (Guest mode)</b>: bot trả lời được khi được nhắc tên trong nhóm mà bot không phải thành viên. Đội nội bộ, bot đã ở sẵn nơi làm việc — không cần.</p></div>
+          <div class="tl-item"><span class="v">10.1 · 11/6/2026</span><p><b>Tin nhắn giàu định dạng (Rich Messages)</b>: tiêu đề, bảng, danh sách, khối gập mở trong một tin nhắn — định dạng hứa hẹn nhất cho báo cáo <code>/stats</code> đẹp như trang web. Cần kiểm chứng hiển thị trên đúng thiết bị của đội và giữ bản HTML dự phòng trước khi dùng chính thức (xem mục 09).</p></div>
+          <div class="tl-item"><span class="v">10.2 · 14/7/2026</span><p><b>Tin nhắn tạm thời (ephemeral)</b> trong nhóm: câu trả lời chỉ người hỏi và bot nhìn thấy — hợp cho biên tập viên nhận xét riêng ngay trong nhóm chung mà không làm loãng nhóm.</p></div>
+          <div class="tl-item"><span class="v">10.3 · 24/8/2026</span><p>Nút bấm bên trong Rich Messages; nút inline <code>disabled</code> thật (cho nút số trang); <code>force_reply</code> bổ sung vào cả hai loại bàn phím.</p></div>
+        </div>
+        <h3>Nền tảng vận hành đi kèm</h3>
+        <ul class="tight">
+          <li><b>Định dạng tin:</b> dùng HTML làm mặc định — chỉ cần thoát 3 ký tự <code>&lt; &gt; &amp;</code> trong nội dung người dùng nhập, trong khi MarkdownV2 bắt thoát cả một dãy ký tự ở mọi gợi ý/tên người được nội suy vào tin nhắn. Tin nhắn tối đa 4096 ký tự, chú thích ảnh 1024 ký tự.</li>
+          <li><b>File &amp; ảnh:</b> bot gửi được file tới 50 MB, tải về tối đa 20 MB. Lưu lại <code>file_id</code> của mọi ảnh nhân viên gửi vào SQLite — gửi lại bằng <code>file_id</code> không tốn băng thông và không bị giới hạn kích thước. Lưu ý Telegram nén lại ảnh gửi dạng ảnh: nếu website cần ảnh gốc, hướng dẫn nhân viên gửi dưới dạng <i>file/tài liệu</i>.</li>
+          <li><b>Deep link:</b> <code>t.me/&lt;bot&gt;?start=&lt;mã&gt;</code> (mã ≤64 ký tự, chỉ gồm chữ/số/gạch dưới/gạch ngang) — dùng làm link mời vào đội theo vai trò và link "mở đúng việc này". Mã chỉ chứa một token ngẫu nhiên tra trong SQLite, tuyệt đối không mã hoá quyền vào trong link.</li>
+          <li><b>Long polling chuẩn sản xuất:</b> lưu <code>offset</code> vào SQLite <i>sau khi</i> xử lý xong từng đợt (sập nguồn thì phát lại, không mất ảnh việc); giới hạn loại update cần nhận (<code>allowed_updates</code>); chỉ một tiến trình poll cho một token (hai tiến trình = lỗi 409 và cả hai cùng đói dữ liệu); update chỉ được Telegram giữ <b>24 giờ</b> — bot tắt máy qua cuối tuần là mất việc gửi tối thứ Sáu, nên bot phải chạy như một dịch vụ được giám sát, không phải script mở tay. Long polling và webhook loại trừ lẫn nhau.</li>
+        </ul>
+      </section>
+
+      <section id="limits">
+        <div class="sec-head"><span class="sec-num">09</span><h2>Giới hạn phải nhớ và cái bẫy lớn nhất: chế độ riêng tư trong nhóm</h2></div>
+        <div class="limit-grid">
+          <div class="limit"><div class="big">100 lệnh</div><div class="small">trần của setMyCommands — thiết kế dùng 4–9 lệnh mỗi vai</div></div>
+          <div class="limit"><div class="big">64 byte</div><div class="small">dữ liệu tối đa trong callback_data của nút inline</div></div>
+          <div class="limit"><div class="big">4.096 ký tự</div><div class="small">độ dài tối đa một tin nhắn văn bản</div></div>
+          <div class="limit"><div class="big">1.024 ký tự</div><div class="small">chú thích ảnh/video tối đa — thẻ việc có ảnh phải gọn</div></div>
+          <div class="limit"><div class="big">50 MB / 20 MB</div><div class="small">trần gửi file / trần tải file về của bot</div></div>
+          <div class="limit"><div class="big">1 tin/giây</div><div class="small">giới hạn gửi trong một cuộc trò chuyện; nhóm: 20 tin/phút</div></div>
+          <div class="limit"><div class="big">~30 tin/giây</div><div class="small">trần phát thông báo hàng loạt — vượt là lỗi 429, phải chờ đúng số giây Telegram trả về (retry_after)</div></div>
+          <div class="limit"><div class="big">24 giờ</div><div class="small">thời gian Telegram giữ update chờ bot đến lấy</div></div>
+        </div>
+        <h3>Nhân viên gửi việc từ đâu quyết định một cài đặt quan trọng</h3>
+        <p>Mặc định mọi bot trong nhóm đều chạy <b>chế độ riêng tư (Privacy Mode)</b>: bot chỉ nhìn thấy lệnh gửi đích danh cho nó, tin trả lời tin của nó và tin dịch vụ — <b>ảnh thả vào nhóm kèm chú thích tuỳ hứng sẽ không bao giờ tới được bot</b>. Chat riêng 1–1 thì không bị ảnh hưởng gì. Nếu đội muốn gửi việc ngay trong nhóm chung, phải chọn một trong ba cách:</p>
+        <div class="grid3">
+          <div class="card" style="margin:0"><h4 style="margin:0 0 6px">Cách A — Giữ riêng tư, gửi có kỷ luật</h4><p style="margin:0">Ảnh phải gửi dạng trả lời một tin của bot hoặc kèm lệnh <code>/new</code>. Không đổi cài đặt gì, nhưng dễ gãy với nhân viên ít rành công nghệ.</p></div>
+          <div class="card" style="margin:0"><h4 style="margin:0 0 6px">Cách B — Đặt bot làm quản trị nhóm</h4><p style="margin:0">Bot quản trị luôn nhận mọi tin nhắn. Đơn giản và chắc chắn, đổi lại bot có quyền quản trị trong nhóm.</p></div>
+          <div class="card" style="margin:0"><h4 style="margin:0 0 6px">Cách C — Tắt chế độ riêng tư</h4><p style="margin:0">Tắt trong BotFather (<code>/setprivacy</code>) rồi <b>gỡ bot ra và thêm lại</b> mới có hiệu lực. Bot nhận mọi tin mà không cần quyền quản trị, nhưng sẽ "nghe" toàn bộ cuộc trò chuyện của nhóm.</p></div>
+        </div>
+        <p><b>Khuyến nghị:</b> luồng chính vẫn là chat riêng 1–1 (đơn giản, riêng tư, không phải đổi gì). Nếu cần thêm kênh gửi từ nhóm chung của đội nhỏ, chọn cách B hoặc C. Trong nhóm, có thể tách mỗi giai đoạn thành một chủ đề forum (Chờ duyệt / Đã đăng) — bot cần quyền quản trị kèm quyền quản lý chủ đề, và bot không tự liệt kê được danh sách chủ đề nên phải tự ghi nhận từ tin dịch vụ.</p>
+        <h3>Hồ sơ bot — phần "trang trí" nhưng là bộ mặt thật</h3>
+        <ul class="tight">
+          <li><b>Mô tả</b> (<code>setMyDescription</code>, 0–512 ký tự): hiện trong khung chat trống trước khi bấm <code>/start</code> — viết như bản hướng dẫn vào việc: bot này dành cho ai, "gửi một ảnh kèm một dòng gợi ý là tạo được việc".</li>
+          <li><b>Giới thiệu ngắn</b> (<code>setMyShortDescription</code>, 0–120 ký tự): hiện ở trang hồ sơ và khi chia sẻ link bot — một dòng, ví dụ "Nhận việc truyền thông của đội: ảnh vào, bài đăng ra."</li>
+          <li><b>Ảnh đại diện:</b> đặt một ảnh rõ ràng — trong nhóm đội, avatar mặc định trông như bot giả mạo/bot rác.</li>
+          <li><b>Chế độ inline: để TẮT.</b> Bot này không có nhu cầu được gọi bằng <code>@bot</code> trong các cuộc trò chuyện khác; bật lên chỉ thêm rủi ro lộ tiêu đề việc ở nơi khác và thêm một loại update phải xử lý.</li>
+          <li>Toàn bộ các mục trên đều cài được bằng API ngay trong mã triển khai bot, để cấu hình là mã nguồn tái lập được; BotFather chỉ giữ việc quản token và các công tắc không có API.</li>
+        </ul>
+      </section>
+
+      <section id="roadmap">
+        <div class="sec-head"><span class="sec-num">10</span><h2>Lộ trình triển khai và các điểm cần chốt</h2></div>
+        <div class="grid2">
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Giai đoạn 1 — Giao diện native hoàn chỉnh</h4>
+            <p class="kbd-note" style="margin:0 0 6px">Làm ngay trên bot hiện tại, không hạ tầng mới</p>
+            <ul class="checklist">
+              <li class="done">Thẻ việc inline theo kênh + hàng chờ duyệt (đã có)</li>
+              <li>Cài <code>setMyCommands</code> theo vai + ghim nút Menu kiểu lệnh</li>
+              <li>Bàn phím chính theo vai, ghim cố định sau <code>/start</code></li>
+              <li>Chuẩn hoá mã <code>callback_data</code> ≤64 byte + sửa thẻ tại chỗ</li>
+              <li><code>/stats</code> dạng chữ + đổi kỳ bằng nút inline</li>
+              <li>Hồ sơ bot: mô tả, giới thiệu ngắn, ảnh đại diện</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Giai đoạn 2 — Kênh Video trong Telegram</h4>
+            <p class="kbd-note" style="margin:0 0 6px">Thêm đầu ra video vào đúng kiến trúc thẻ kênh hiện có</p>
+            <ul class="checklist">
+              <li>Hai thẻ kênh mới: Video dọc 9:16 và Video ngang 16:9, mỗi thẻ duyệt/đăng riêng</li>
+              <li>Muse dựng video nháp từ tư liệu gốc của việc (ghép ảnh + chữ + nhạc nền; cảnh AI khi cần)</li>
+              <li>Gửi video nháp vào Telegram xem trước; duyệt trên thẻ kênh Video mới được đăng</li>
+              <li>Thống kê bổ sung: số video đã tạo, đã đăng theo từng nền tảng</li>
+              <li>Nút xuất biểu đồ PNG và file Excel/CSV trong <code>/stats</code></li>
+              <li>Bản tổng kết ngày tự gửi + bảng tin ghim trong nhóm đội</li>
+              <li>Link mời theo vai trò bằng deep link <code>?start=</code></li>
+              <li>Hàng đợi gửi tin có bóp tốc độ theo từng chat, tôn trọng <code>retry_after</code></li>
+              <li>Thử Rich Messages cho báo cáo trên thiết bị thật của đội</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Giai đoạn 3 — Kết nối đăng YouTube &amp; TikTok</h4>
+            <p class="kbd-note" style="margin:0 0 6px">Khi luồng duyệt video nháp đã chạy ổn ở giai đoạn 2</p>
+            <ul class="checklist">
+              <li>YouTube: kết nối tài khoản/kênh Google, cấp quyền tải lên; đăng video ngang 16:9 và Shorts</li>
+              <li>TikTok: đăng video dọc qua API chính thức — kiểm chứng trước duyệt ứng dụng và giới hạn với tài khoản/ứng dụng chưa được duyệt</li>
+              <li>Sau khi đăng: ghi link video đã đăng về đúng thẻ kênh Video</li>
+              <li>Dự phòng khi API của một nền tảng chưa mở: đăng qua trình duyệt bằng phiên đăng nhập của chủ tài khoản, như cách đang làm với Facebook</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Giai đoạn 4 — Mini App cho admin</h4>
+            <p class="kbd-note" style="margin:0 0 6px">Chỉ khi có nhu cầu lọc / xử lý hàng loạt</p>
+            <ul class="checklist">
+              <li>Tên miền + HTTPS + máy chủ web riêng cho dashboard</li>
+              <li>Xác thực <code>initData</code> bằng HMAC trên mọi yêu cầu</li>
+              <li>Bảng việc lọc theo người × trạng thái × ngày, duyệt/đăng hàng loạt</li>
+              <li>Nút Menu kiểu <code>web_app</code> gán riêng cho admin</li>
+            </ul>
+          </div>
+        </div>
+        <h3>Chưa kiểm chứng được — nói thẳng để khỏi quyết trên cát</h3>
+        <ul class="tight">
+          <li><b>Không có API thống kê sử dụng bot:</b> kết luận "không tồn tại" rút ra từ việc rà soát mục lục và nhật ký thay đổi của tài liệu chính thức — không có hàm kiểu <code>getMyStatistics</code> cho bot. Thống kê kênh qua MTProto nằm ngoài phạm vi bản thiết kế này.</li>
+          <li><b>Rich Messages hiển thị không đồng đều:</b> API là chính thức, nhưng mức hỗ trợ ở các ứng dụng Telegram bên thứ ba và thư viện chưa theo kịp — phải thử trên thiết bị của đội trước khi dùng cho <code>/stats</code>, luôn giữ bản HTML dự phòng.</li>
+          <li><b>Hành vi phía client có khác biệt:</b> các trường như <code>is_persistent</code> hay nút Menu ghi đè theo người được tài liệu mô tả là "yêu cầu client thực hiện" — khác biệt nhỏ giữa Telegram Desktop và Android/iOS chưa kiểm chứng được từ tài liệu công khai.</li>
+          <li><b>Giới hạn <code>sendData</code> của Mini App mở từ bàn phím:</b> chưa xác minh được con số chính xác trong phạm vi nghiên cứu này — chỉ ảnh hưởng nếu giai đoạn 4 chọn kiểu mở đó.</li>
+        </ul>
+        <h3>Bốn quyết định cần bạn chốt trước khi code</h3>
+        <ul class="tight">
+          <li><b>Kênh gửi việc chính:</b> chat riêng 1–1 (khuyến nghị, không phải đổi cài đặt nào) hay thêm nhóm chung — nếu thêm nhóm thì chọn cách B (bot làm quản trị) hay cách C (tắt chế độ riêng tư) ở mục 09.</li>
+          <li><b>Ai được xem thống kê:</b> Admin + Phó Admin như bảng lệnh ở mục 02, hay mở thêm cho Biên tập viên.</li>
+          <li><b>Video mở đầu ra nào trước:</b> dọc 9:16 (TikTok / Shorts / Reels) hay ngang 16:9 (YouTube) — và ở giai đoạn 3, kết nối đăng nền tảng nào trước.</li>
+          <li><b>Mini App:</b> để giai đoạn 4 như lộ trình, hay làm ngay từ đầu (chấp nhận thêm chi phí tên miền/hosting và thời gian làm giao diện web).</li>
+        </ul>
+      </section>
+
+      <section id="sources">
+        <div class="sec-head"><span class="sec-num">11</span><h2>Nguồn đối chiếu</h2></div>
+        <p class="sec-sub">Toàn bộ cơ chế và con số trong bản thiết kế lấy từ tài liệu chính thức của Telegram (đọc ngày 22–23/10/2026), hai nguồn phụ được ghi rõ khi dùng.</p>
+        <ul class="src-list">
+          <li>Telegram Bot API — tài liệu tham chiếu chính thức (phiên bản 10.3): <a href="https://core.telegram.org/bots/api">https://core.telegram.org/bots/api</a></li>
+          <li>Telegram Bot API — nhật ký thay đổi các phiên bản: <a href="https://core.telegram.org/bots/api-changelog">https://core.telegram.org/bots/api-changelog</a></li>
+          <li>Telegram Bot Features — lệnh, phạm vi lệnh, bàn phím, nút Menu, deep link, chế độ riêng tư: <a href="https://core.telegram.org/bots/features">https://core.telegram.org/bots/features</a></li>
+          <li>Telegram Mini Apps — cách mở, xác thực initData, yêu cầu HTTPS: <a href="https://core.telegram.org/bots/webapps">https://core.telegram.org/bots/webapps</a></li>
+          <li>Telegram Bots FAQ — file, giới hạn tốc độ, getUpdates, chế độ riêng tư: <a href="https://core.telegram.org/bots/faq">https://core.telegram.org/bots/faq</a></li>
+          <li>Nút Menu bot ở tầng MTProto — phạm vi áp dụng theo người dùng: <a href="https://core.telegram.org/api/bots/menu">https://core.telegram.org/api/bots/menu</a></li>
+          <li>(Nguồn phụ) Tổng hợp giới hạn Bot API — kích thước file theo URL, thời gian giữ update 24 giờ: <a href="https://www.conferbot.com/limits/telegram">https://www.conferbot.com/limits/telegram</a></li>
+          <li>(Nguồn phụ) Bot mã nguồn mở tự sinh ảnh biểu đồ thống kê và gửi qua chat: <a href="https://deepwiki.com/w1png/shop-telegram-bot/5.2-statistics-and-analytics">https://deepwiki.com/w1png/shop-telegram-bot/5.2-statistics-and-analytics</a></li>
+        </ul>
+      </section>
+
+      <footer>
+        Bản thiết kế cho bot @iaict_media_bot · Đối chiếu Telegram Bot API 10.3 (24/8/2026) · Cập nhật khi Telegram ra phiên bản API mới hoặc khi đội chốt các quyết định ở mục 10.
+      </footer>
+    </div>
+
+    <script>
+      (function(){
+        "use strict";
+        var chat = document.getElementById('chat');
+        var toastEl = document.getElementById('toast');
+        var cmdpop = document.getElementById('cmdpop');
+        var rkb = document.getElementById('rkb');
+        var rolebar = document.getElementById('rolebar');
+        var fakeinput = document.getElementById('fakeinput');
+        var toastTimer = null;
+
+        function now(){
+          var d = new Date(), h = d.getHours(), m = d.getMinutes();
+          return (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+        }
+        function toast(text){
+          toastEl.textContent = text;
+          toastEl.classList.add('show');
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(function(){ toastEl.classList.remove('show'); }, 2100);
+        }
+        function scrollDown(){ chat.scrollTop = chat.scrollHeight; }
+
+        var ROLES = {
+          admin: { name:'Admin', review:true, publish:true,
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/stats','Thống kê'],['/export','Xuất báo cáo Excel / CSV'],['/team','Quản lý nhân sự: cấp / thu hồi quyền'],['/help','Hướng dẫn sử dụng']],
+            kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['✅ Hàng chờ duyệt','📊 Thống kê'],['👥 Nhân sự','❓ Trợ giúp']],
+            hello:'Chào <b>Admin</b> — bạn có toàn quyền: duyệt bài, bấm đăng cả 3 kênh (Website · Facebook · Instagram), xem thống kê và quản lý nhân sự. Bàn phím và Menu bên dưới là bộ đầy đủ nhất của bot.' },
+          deputy: { name:'Phó Admin', review:true, publish:false,
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/stats','Thống kê'],['/help','Hướng dẫn sử dụng']],
+            kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['✅ Hàng chờ duyệt','📊 Thống kê'],['❓ Trợ giúp']],
+            hello:'Chào <b>Phó Admin</b> — bạn tạo và duyệt được nội dung, xem được thống kê. Khâu đăng public do Admin chốt cuối, nên thẻ đã duyệt của bạn sẽ hiện trạng thái chờ đăng.' },
+          editor: { name:'Biên tập viên', review:true, publish:false,
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/help','Hướng dẫn sử dụng']],
+            kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['✅ Hàng chờ duyệt','❓ Trợ giúp']],
+            hello:'Chào <b>Biên tập viên</b> — việc của bạn là sửa bài, duyệt nội dung hoặc trả lại kèm lý do. Menu của bạn không có Thống kê và Nhân sự — đúng phạm vi vai trò.' },
+          staff: { name:'Nhân viên', review:false, publish:false,
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/help','Hướng dẫn sử dụng']],
+            kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['❓ Trợ giúp']],
+            hello:'Chào <b>Nhân viên</b> — bạn chỉ cần gửi ảnh kèm một dòng gợi ý là tạo xong việc; bài của bạn sẽ vào hàng chờ duyệt. Giao diện gọn đúng 4 lệnh, không có nút duyệt hay thống kê.' },
+          contributor: { name:'Cộng tác viên', review:false, publish:false,
+            cmds:[['/start','Mở màn hình chính'],['/new','Gửi tư liệu — ảnh kèm gợi ý'],['/help','Hướng dẫn sử dụng']],
+            kb:[['📤 Gửi tư liệu','❓ Trợ giúp']],
+            hello:'Chào <b>Cộng tác viên</b> — bạn chỉ gửi ảnh / tư liệu cho đội làm bài, không duyệt và không đăng. Bot vì thế chỉ hiện đúng hai nút cần thiết.' }
+        };
+        var ORDER = ['admin','deputy','editor','staff','contributor'];
+        var role = 'admin';
+        var R = ROLES[role];
+        var taskSeq = 8;
+        var reviewTask = null;
+
+        /* ---------- message helpers ---------- */
+        function bubble(cls, html, ikbRows){
+          var el = document.createElement('div');
+          el.className = 'msg ' + cls;
+          el.innerHTML = html + '<span class="time">' + now() + '</span>';
+          if (ikbRows) el.appendChild(buildIkb(ikbRows));
+          chat.appendChild(el);
+          scrollDown();
+          return el;
+        }
+        function buildIkb(rows){
+          var wrap = document.createElement('div');
+          wrap.className = 'ikb';
+          rows.forEach(function(row){
+            var r = document.createElement('div');
+            r.className = 'ikb-row';
+            row.forEach(function(b){
+              var btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'ikb-btn' + (b.off ? ' off' : '');
+              btn.textContent = b.t;
+              btn.setAttribute('data-cb', b.cb);
+              r.appendChild(btn);
+            });
+            wrap.appendChild(r);
+          });
+          return wrap;
+        }
+        function setIkb(el, rows){
+          var old = el.querySelector('.ikb');
+          if (old) old.remove();
+          if (rows) el.appendChild(buildIkb(rows));
+          scrollDown();
+        }
+        function userSay(text){ return bubble('me', escapeHtml(text)); }
+        function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+        /* ---------- task card ---------- */
+        function cardHtml(c){
+          var statusLine;
+          if (c.state === 'pending') statusLine = '⏳ <b>Chờ duyệt</b>';
+          else if (c.state === 'returned') statusLine = '↩️ <b>Đã trả lại</b> — lý do: ảnh hơi mờ, nhờ gửi lại ảnh gốc';
+          else {
+            var parts = [];
+            parts.push(c.pub.w ? '🌐 Website ✅' : '🌐 Website —');
+            parts.push(c.pub.f ? '📘 Facebook ✅' : '📘 Facebook —');
+            parts.push(c.pub.i ? '📸 Instagram ✅' : '📸 Instagram —');
+            statusLine = '✅ <b>Đã duyệt</b> bởi ' + c.decider + '<br>' + parts.join(' · ');
+          }
+          return '<div class="photo-ph"><span>Ảnh tư liệu đính kèm</span></div>' +
+            '<div class="cap">📋 <b>' + c.id + '</b> — ' + escapeHtml(c.hint) + '<br>' +
+            'Người tạo: ' + escapeHtml(c.author) + ' · Tạo lúc ' + c.time + '<br>' + statusLine + '</div>';
+        }
+        function cardButtons(c){
+          if (c.state === 'pending'){
+            if (R.review) return [
+              [{t:'✅ Duyệt', cb:'a:'+c.key},{t:'↩️ Trả lại', cb:'r:'+c.key}],
+              [{t:'🔍 Xem bản thảo', cb:'v:'+c.key}]
+            ];
+            return [[{t:'⏳ Đang chờ biên tập viên duyệt', cb:'noop', off:true}]];
+          }
+          if (c.state === 'returned') return [[{t:'↩️ Đã trả lại — chờ bản sửa', cb:'noop', off:true}]];
+          if (R.publish) return [
+            [{t:(c.pub.w?'✅ Web':'🌐 Đăng Website'), cb:'pub:'+c.key+':w', off:c.pub.w},
+             {t:(c.pub.f?'✅ FB':'📘 Facebook'), cb:'pub:'+c.key+':f', off:c.pub.f}],
+            [{t:(c.pub.i?'✅ IG':'📸 Instagram'), cb:'pub:'+c.key+':i', off:c.pub.i}]
+          ];
+          return [[{t:'✅ Đã duyệt — chờ Admin đăng', cb:'noop', off:true}]];
+        }
+        var cards = {};
+        function renderCard(c){
+          var body = c.el.querySelector('.capwrap');
+          if (!body){
+            c.el.innerHTML = '<div class="capwrap"></div><span class="time">' + now() + '</span>';
+            body = c.el.querySelector('.capwrap');
+          }
+          body.innerHTML = cardHtml(c);
+          setIkb(c.el, cardButtons(c));
+        }
+        function makeCard(author, hint){
+          taskSeq += 1;
+          var c = { key:'k'+taskSeq, id:'CV-' + ('000'+taskSeq).slice(-4), author:author,
+                    hint:hint, time:now(), state:'pending', decider:'', pub:{w:false,f:false,i:false}, el:null };
+          c.el = bubble('bot', '');
+          cards[c.key] = c;
+          renderCard(c);
+          return c;
+        }
+        function submitPhoto(){
+          var el = bubble('me', '<div class="photo-ph"><span>IMG_2041.jpg</span></div><div class="cap">Hội thảo nông nghiệp thông minh xã Chân Mộng, Phú Thọ</div>');
+          setTimeout(function(){
+            var c = makeCard('Bạn (' + R.name + ')', 'Hội thảo nông nghiệp thông minh xã Chân Mộng, Phú Thọ');
+            toast('Đã tạo việc ' + c.id);
+            if (!R.review) setTimeout(function(){ bubble('bot','Việc <b>'+c.id+'</b> đã vào hàng chờ duyệt. Biên tập viên xử lý xong bot sẽ báo lại cho bạn tại đây.'); }, 450);
+          }, 350);
+        }
+
+        /* ---------- flows ---------- */
+        function doNew(label){
+          userSay(label);
+          setTimeout(function(){
+            bubble('bot','Gửi <b>ảnh</b> kèm <b>một dòng gợi ý</b> (sự kiện gì, ở đâu) — bot tạo việc ngay, không cần điền biểu mẫu.');
+            setTimeout(submitPhoto, 650);
+          }, 300);
+        }
+        var LIST_PAGES = {
+          my: [
+            ['CV-0007 · Khai giảng lớp tập huấn kỹ thuật · ✅ Đã duyệt','CV-0006 · Hội nghị tổng kết quý III · 🌐 Đã đăng Web','CV-0005 · Lễ ra mắt sản phẩm mới · 📘 Đã đăng FB'],
+            ['CV-0004 · Tọa đàm chuyển đổi số · ↩️ Trả lại','CV-0003 · Hội thi tay nghề nông dân · ✅ Đã đăng đủ 3 kênh']
+          ],
+          pending: [
+            ['CV-0009 · Lan gửi · Hội thảo nông nghiệp thông minh · ⏳','CV-0010 · Tuấn gửi · Khai mạc triển lãm thiết bị · ⏳'],
+            ['CV-0011 · Lan gửi · Phỏng vấn nông dân tiêu biểu · ⏳']
+          ]
+        };
+        var listState = {};
+        function listHtml(kind, page){
+          var items = LIST_PAGES[kind][page-1];
+          var title = kind === 'my' ? '🗂 <b>Việc của tôi</b>' : '✅ <b>Hàng chờ duyệt</b>';
+          return title + ' — trang ' + page + '/' + LIST_PAGES[kind].length +
+            items.map(function(t){ return '<br>• ' + escapeHtml(t); }).join('');
+        }
+        function listButtons(kind, page){
+          var total = LIST_PAGES[kind].length;
+          return [
+            [{t:'◀', cb:'lst:'+kind+':'+(page-1), off:page<=1},
+             {t:page+'/'+total, cb:'noop', off:true},
+             {t:'▶', cb:'lst:'+kind+':'+(page+1), off:page>=total}],
+            [{t:'🔄 Làm mới', cb:'lst:'+kind+':'+page},{t:'✖ Đóng', cb:'close'}]
+          ];
+        }
+        function showList(kind){
+          var el = bubble('bot', listHtml(kind,1), listButtons(kind,1));
+          listState[el.dataset.lid = 'l'+Math.random()] = {kind:kind, page:1};
+          el._listKey = el.dataset.lid;
+        }
+        var STATS = {
+          d:{label:'Hôm nay', pre:'Tạo mới:          6\nĐã duyệt:         5\nTrả lại:          1\nĐăng Website:     3\nĐăng Facebook:    3\nĐăng Instagram:   2\nĐang chờ duyệt:   2 (lâu nhất 3 giờ)'},
+          w:{label:'Tuần này', pre:'Tạo mới:         24\nĐã duyệt:        21\nTrả lại:          3\nĐăng Website:    18\nĐăng Facebook:   17\nĐăng Instagram:  15\nĐang chờ duyệt:   2 (lâu nhất 3 giờ)'},
+          m:{label:'Tháng này', pre:'Tạo mới:         96\nĐã duyệt:        88\nTrả lại:          8\nĐăng Website:    81\nĐăng Facebook:   79\nĐăng Instagram:  74\nĐang chờ duyệt:   2 (lâu nhất 3 giờ)'}
+        };
+        var statsEl = null;
+        function statsButtons(cur){
+          return [
+            [{t:(cur==='d'?'● ':'')+'Hôm nay', cb:'st:d'},{t:(cur==='w'?'● ':'')+'Tuần', cb:'st:w'},{t:(cur==='m'?'● ':'')+'Tháng', cb:'st:m'}],
+            [{t:'📈 Biểu đồ', cb:'chart'},{t:'⬇️ Xuất Excel', cb:'xlsx'}]
+          ];
+        }
+        function showStats(period){
+          var s = STATS[period];
+          if (statsEl && document.body.contains(statsEl)){
+            statsEl.querySelector('.statbody').innerHTML = '📊 <b>Thống kê — ' + s.label + '</b><pre>' + s.pre + '</pre>';
+            setIkb(statsEl, statsButtons(period));
+            scrollDown();
+            return;
+          }
+          statsEl = bubble('bot', '<div class="statbody">📊 <b>Thống kê — ' + s.label + '</b><pre>' + s.pre + '</pre></div>', statsButtons(period));
+        }
+        function showChart(){
+          var bars = [['Thứ 2',4],['Thứ 3',6],['Thứ 4',5],['Thứ 5',8],['Thứ 6',3],['Thứ 7',2],['CN',6]];
+          var html = '<div class="chart-ph">' + bars.map(function(b){
+            return '<div class="chart-row"><span class="lab">'+b[0]+'</span><span class="bar" style="width:'+(b[1]*13)+'%"></span><span class="val">'+b[1]+'</span></div>';
+          }).join('') + '</div><div class="cap">📈 Số việc tạo mới theo ngày trong tuần (ảnh biểu đồ bot tự vẽ và gửi — số liệu mẫu)</div>';
+          bubble('bot', html);
+        }
+        function showDoc(name){
+          bubble('bot','<div class="doc-ph"><span class="doc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg></span><span><b>'+name+'</b><br><span style="opacity:.65;font-size:12px">3 sheet: Việc · Theo người · Theo ngày</span></span></div><div class="cap">Báo cáo kỳ đã chọn — file này là bản lưu trữ chính thức.</div>');
+        }
+        function doTeam(){
+          bubble('bot','👥 <b>Nhân sự của đội</b><br>• Bạn — <b>Admin</b> (gốc)<br>• Hương — Phó Admin<br>• Dũng — Biên tập viên<br>• Lan, Tuấn — Nhân viên<br>• Mai — Cộng tác viên<br><br>Cấp quyền: gửi link mời theo vai trò, người nhận bấm link là vào đúng vai. Thu hồi: chọn người trong danh sách.', [[{t:'🔗 Tạo link mời Nhân viên', cb:'invite'},{t:'🔗 Link mời CTV', cb:'invite'}]]);
+        }
+        function doHelp(){
+          var lines = R.cmds.map(function(c){ return '<code>'+c[0]+'</code> — '+escapeHtml(c[1]); }).join('<br>');
+          bubble('bot','❓ <b>Trợ giúp — vai trò ' + R.name + '</b><br>' + lines + '<br><br>Thao tác hằng ngày cứ bấm nút ở bàn phím dưới ô nhập; nút <b>Menu</b> góc trái mở cùng danh sách lệnh này.');
+        }
+        function doPending(){
+          userSay('✅ Hàng chờ duyệt');
+          setTimeout(function(){
+            bubble('bot','Có <b>1 việc</b> đang chờ bạn duyệt (bản mô phỏng):');
+            setTimeout(function(){
+              if (!reviewTask || reviewTask.state !== 'pending'){
+                reviewTask = makeCard('Lan — Nhân viên', 'Hội thảo nông nghiệp thông minh xã Chân Mộng, Phú Thọ');
+              } else {
+                reviewTask.el.scrollIntoView({block:'center'});
+                toast('Thẻ việc đang ở phía trên');
+              }
+            }, 350);
+          }, 300);
+        }
+
+        /* ---------- role setup ---------- */
+        function renderRoleUI(){
+          R = ROLES[role];
+          rolebar.innerHTML = '';
+          ORDER.forEach(function(k){
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'rolebtn' + (k===role ? ' on' : '');
+            b.textContent = ROLES[k].name;
+            b.setAttribute('role','tab');
+            b.addEventListener('click', function(){ setRole(k); });
+            rolebar.appendChild(b);
+          });
+          rkb.innerHTML = '';
+          R.kb.forEach(function(row){
+            var r = document.createElement('div');
+            r.className = 'rkb-row';
+            r.style.gridTemplateColumns = 'repeat(' + row.length + ',1fr)';
+            row.forEach(function(label){
+              var b = document.createElement('button');
+              b.type = 'button';
+              b.className = 'rkb-btn';
+              b.textContent = label;
+              b.addEventListener('click', function(){ onReplyTap(label); });
+              r.appendChild(b);
+            });
+            rkb.appendChild(r);
+          });
+          cmdpop.innerHTML = '';
+          R.cmds.forEach(function(c){
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.innerHTML = '<span class="c"></span><span class="d"></span>';
+            b.querySelector('.c').textContent = c[0];
+            b.querySelector('.d').textContent = c[1];
+            b.addEventListener('click', function(){ cmdpop.classList.remove('open'); onCommand(c[0]); });
+            cmdpop.appendChild(b);
+          });
+          fakeinput.textContent = role === 'contributor' ? 'Gửi ảnh kèm gợi ý…' : 'Gửi ảnh kèm gợi ý, hoặc bấm nút bên dưới…';
+        }
+        function setRole(k){
+          role = k; reviewTask = null; statsEl = null; cards = {}; taskSeq = 8;
+          chat.innerHTML = '';
+          renderRoleUI();
+          bubble('bot', R.hello);
+          setTimeout(function(){ bubble('bot','Bấm thử <b>' + (role==='contributor' ? '📤 Gửi tư liệu' : '📥 Giao việc mới') + '</b> ở bàn phím bên dưới, hoặc mở nút <b>Menu</b> góc trái ô nhập để xem danh sách lệnh của vai ' + R.name + '.'); }, 250);
+        }
+        function onReplyTap(label){
+          if (label.indexOf('Giao việc') >= 0 || label.indexOf('Gửi tư liệu') >= 0) doNew(label);
+          else if (label.indexOf('Việc của tôi') >= 0){ userSay(label); setTimeout(function(){ showList('my'); }, 250); }
+          else if (label.indexOf('Hàng chờ duyệt') >= 0) doPending();
+          else if (label.indexOf('Thống kê') >= 0){ userSay(label); setTimeout(function(){ showStats('w'); }, 250); }
+          else if (label.indexOf('Nhân sự') >= 0){ userSay(label); setTimeout(doTeam, 250); }
+          else if (label.indexOf('Trợ giúp') >= 0){ userSay(label); setTimeout(doHelp, 250); }
+        }
+        function onCommand(cmd){
+          if (cmd === '/start'){ setRole(role); return; }
+          userSay(cmd);
+          setTimeout(function(){
+            if (cmd === '/new') { bubble('bot','Gửi <b>ảnh</b> kèm <b>một dòng gợi ý</b> — bot tạo việc ngay.'); setTimeout(submitPhoto, 600); }
+            else if (cmd === '/my') showList('my');
+            else if (cmd === '/pending' || cmd === '/review') showList('pending');
+            else if (cmd === '/stats') showStats('w');
+            else if (cmd === '/export') showDoc('tasks_2026-10.xlsx');
+            else if (cmd === '/team') doTeam();
+            else if (cmd === '/help') doHelp();
+          }, 250);
+        }
+
+        /* ---------- callback handling ---------- */
+        chat.addEventListener('click', function(e){
+          var btn = e.target.closest('[data-cb]');
+          if (!btn) return;
+          var cb = btn.getAttribute('data-cb');
+          if (cb === 'noop') return;
+          var parts = cb.split(':');
+          var act = parts[0];
+          if (act === 'a' || act === 'r'){
+            var c = cards[parts[1]]; if (!c) return;
+            if (act === 'a'){ c.state = 'approved'; c.decider = 'Bạn (' + R.name + ')'; renderCard(c); toast('✅ Đã duyệt ' + c.id); }
+            else { c.state = 'returned'; renderCard(c); toast('↩️ Đã trả lại ' + c.id + ' kèm lý do'); }
+          }
+          else if (act === 'v'){ toast('Bản thảo đầy đủ mở trong thẻ việc (mô phỏng)'); }
+          else if (act === 'pub'){
+            var c2 = cards[parts[1]]; if (!c2) return;
+            c2.pub[parts[2]] = true; renderCard(c2);
+            var chName = parts[2]==='w' ? 'Website' : parts[2]==='f' ? 'Facebook' : 'Instagram';
+            toast('🚀 Đã đăng ' + c2.id + ' lên ' + chName);
+          }
+          else if (act === 'lst'){
+            var msgEl = btn.closest('.msg');
+            var st = listState[msgEl && msgEl.dataset.lid];
+            if (!st) return;
+            var total = LIST_PAGES[st.kind].length;
+            var p = parseInt(parts[2],10);
+            if (p < 1) p = 1; if (p > total) p = total;
+            st.page = p;
+            var body = msgEl.childNodes[0];
+            msgEl.innerHTML = listHtml(st.kind, p) + '<span class="time">' + now() + '</span>';
+            msgEl.appendChild(buildIkb(listButtons(st.kind, p)));
+          }
+          else if (act === 'close'){
+            var m = btn.closest('.msg'); if (m) m.remove();
+            toast('Đã đóng (bot xoá tin nhắn danh sách)');
+          }
+          else if (act === 'st'){ showStats(parts[1]); }
+          else if (act === 'chart'){ showChart(); }
+          else if (act === 'xlsx'){ showDoc('tasks_2026-10.xlsx'); }
+          else if (act === 'invite'){ toast('Đã tạo link mời — gửi cho người cần cấp quyền'); }
+        });
+
+        document.getElementById('menubtn').addEventListener('click', function(){
+          cmdpop.classList.toggle('open');
+        });
+        document.querySelector('.sendbtn').addEventListener('click', function(){
+          cmdpop.classList.remove('open');
+          submitPhoto();
+        });
+
+        /* ---------- copy buttons ---------- */
+        document.querySelectorAll('.copybtn').forEach(function(b){
+          b.addEventListener('click', function(){
+            var target = document.getElementById(b.getAttribute('data-copy'));
+            if (!target) return;
+            var text = target.textContent;
+            function done(){ b.textContent = 'Đã chép ✓'; setTimeout(function(){ b.textContent = 'Sao chép'; }, 1600); }
+            if (navigator.clipboard && navigator.clipboard.writeText){
+              navigator.clipboard.writeText(text).then(done, function(){ b.textContent = 'Không chép được'; });
+            } else { b.textContent = 'Không chép được'; }
+          });
+        });
+
+        setRole('admin');
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+data/bot.db
+data/files/*
+!data/files/.gitkeep
+data/backup-*/
+__pycache__/
+*.pyc
+.env
