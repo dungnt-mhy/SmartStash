@@ -522,6 +522,17 @@ class Store:
                 (now_iso,),
             ).fetchall()
 
+    def latest_published_output(self, channel: str):
+        """Most recently published output on a channel (its
+        updated_at is the publish moment) — for the too-close
+        warning when a new post is scheduled right after one."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM outputs WHERE channel = ? AND "
+                "status = 'PUBLISHED' ORDER BY updated_at DESC LIMIT 1",
+                (channel,),
+            ).fetchone()
+
     def list_scheduled_outputs(self, channel: str):
         """All outputs currently holding a schedule on one channel —
         used for the too-close-together warning."""

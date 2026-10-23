@@ -745,6 +745,74 @@ class BotTestCase(unittest.TestCase):
             self.assertEqual(host.upload(img, "draft-media/T/x.jpg"), url)
             self.assertEqual(calls["put"], 2)
 
+    def test_schedule_quick_pick_buttons(self):
+        from datetime import datetime, timedelta, timezone
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        self.store.set_output_status(fb["id"], "APPROVED_WAITING")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{fb['id']}"))
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schto:{fb['id']}:page"))
+        prompt = self.api.sent[-1]
+        data = [b["callback_data"]
+                for row in prompt["reply_markup"]["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_schquick:{fb['id']}:60", data)
+        self.assertIn(f"out_schquick:{fb['id']}:eve", data)
+        before = datetime.now(timezone.utc)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schquick:{fb['id']}:60"))
+        updated = self.store.get_output(fb["id"])
+        self.assertIsNotNone(updated["scheduled_at"])
+        when = datetime.fromisoformat(updated["scheduled_at"])
+        self.assertTrue(
+            before + timedelta(minutes=55) <= when
+            <= before + timedelta(minutes=65))
+        self.assertEqual(updated["publish_target"], "page")
+        self.assertIsNone(self.store.get_user_state(ADMIN))
+
+    def test_schedule_warns_about_recently_published_post(self):
+        # Channel already published a post minutes ago: scheduling
+        # the next one within the hour warns about that too.
+        task = self.create_admin_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_public_url(
+            web["id"], "https://example.com/da-dang")
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, text="Việc tiếp theo"))
+        task2 = [t for t in self.store.list_tasks()
+                 if t["creator_id"] == CONTRIBUTOR][0]
+        web2 = self.store.get_output_by_channel(task2["code"], "website")
+        self.store.set_output_draft(web2["id"], "https://example.com/d/w2")
+        self.store.set_output_status(web2["id"], "APPROVED_WAITING")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{web2['id']}"))
+        self.api.sent.clear()
+        self.app.handle_update(
+            message_update(ADMIN, text=self._future_hhmm(0.5)))
+        warns = [t for t in self.api.texts_to(ADMIN)
+                 if "mới đăng bài" in t]
+        self.assertEqual(len(warns), 1)
+        self.assertIn(task["code"], warns[0])
+
+    def test_wizard_create_sends_instant_notice(self):
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="📝 Giao việc mới"))
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, photo=PHOTO, caption="Ảnh cổng trường"))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_done_files"))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Khai giảng năm học mới"))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
+        texts = self.api.texts_to(CONTRIBUTOR)
+        # The small "sending" notice is its own message, ahead of
+        # the usual completion message.
+        self.assertIn("⏳ Đang gửi cho Muse…", texts)
+        self.assertTrue(any("Đã tạo việc" in t for t in texts))
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

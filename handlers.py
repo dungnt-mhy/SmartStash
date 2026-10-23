@@ -1300,6 +1300,10 @@ class BotApp:
         hint = (payload.get("hint") or "").strip()
         self.store.clear_user_state(user["telegram_id"])
         self._answer(callback_id, "Đã chốt! Đang gửi cho Muse…")
+        # Owner's request: a small notice lands in the chat at once —
+        # creating the task can take a while (photo downloads), and a
+        # lone toast disappears before the work is done.
+        self._send(chat_id, "⏳ Đang gửi cho Muse…")
         task = self._create_task(user, chat_id, hint,
                                  payload.get("files") or [],
                                  destinations=destinations,
@@ -2173,6 +2177,9 @@ class BotApp:
         elif action == "out_unschedule":
             self._output_unschedule(
                 callback_id, user, chat_id, output, task, message_id)
+        elif action == "out_schquick":
+            self._output_schedule_quick(
+                callback_id, user, chat_id, output, task, extra, message_id)
         elif action == "out_retract":
             self._output_retract_start(
                 callback_id, user, chat_id, output, task)
@@ -2603,14 +2610,8 @@ class BotApp:
         self.store.set_user_state(
             user["telegram_id"], "await_output_schedule_time",
             {"output_id": output["id"], "target": None})
-        self._answer(callback_id, "Hãy nhắn giờ đăng.")
-        label = CHANNELS.get(output["channel"], {}).get(
-            "label", output["channel"])
-        self._send(
-            chat_id,
-            f"🕐 Đặt lịch đăng thẻ kênh {label} của việc {task['code']}: "
-            "nhắn giờ theo mẫu 16:30 (hôm nay — qua giờ thì tính ngày "
-            "mai) hoặc 24/10 16:30. Giờ Việt Nam.")
+        self._answer(callback_id, "Chọn giờ đăng 👇")
+        self._prompt_schedule_time(chat_id, output, task)
 
     def _output_schedule_target(self, callback_id, user, chat_id,
                                 output, task, target, message_id):
@@ -2627,11 +2628,11 @@ class BotApp:
             user["telegram_id"], "await_output_schedule_time",
             {"output_id": output["id"], "target": target})
         label = FB_PUBLISH_TARGETS[target]
-        self._answer(callback_id, f"Đã chọn {label} — nhắn giờ đăng 👇")
+        self._answer(callback_id, f"Đã chọn {label} — chọn giờ đăng 👇")
         self._edit_card(
             chat_id, message_id,
-            f"📘 Đặt lịch đăng lên {label}. Nhắn giờ đăng theo mẫu "
-            "16:30 hoặc 24/10 16:30 (giờ Việt Nam).")
+            f"📘 Đặt lịch đăng lên {label}.")
+        self._prompt_schedule_time(chat_id, output, task)
 
     def _output_schedule_abort(self, callback_id, user, chat_id,
                                output, task, message_id):
@@ -2640,6 +2641,120 @@ class BotApp:
             chat_id, message_id,
             f"🚫 Đã hủy đặt lịch đăng bài Facebook của việc "
             f"{task['code']}.")
+
+    def _prompt_schedule_time(self, chat_id, output, task):
+        """Ask for the publish time with quick-pick buttons; typing
+        a custom time stays available (owner: 'cho chọn time')."""
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        oid = output["id"]
+        self._send(
+            chat_id,
+            f"🕐 Đặt lịch đăng thẻ kênh {label} của việc "
+            f"{task['code']}: chọn nhanh bên dưới, hoặc nhắn giờ khác "
+            "theo mẫu 16:30 (hôm nay — qua giờ thì tính ngày mai) / "
+            "24/10 16:30. Giờ Việt Nam.",
+            reply_markup=_keyboard([
+                [_btn("⏱ Sau 1 giờ", f"out_schquick:{oid}:60"),
+                 _btn("⏱ Sau 2 giờ", f"out_schquick:{oid}:120")],
+                [_btn("🌆 Tối nay 20:00", f"out_schquick:{oid}:eve"),
+                 _btn("🌅 Sáng mai 8:00", f"out_schquick:{oid}:mor")],
+            ]))
+
+    def _output_schedule_quick(self, callback_id, user, chat_id,
+                               output, task, preset, message_id):
+        state = self.store.get_user_state(user["telegram_id"])
+        if not state or state["state"] != "await_output_schedule_time" \
+                or (state["payload"] or {}).get("output_id") != output["id"]:
+            self._answer(callback_id,
+                         "⌛ Phiên đặt lịch này đã kết thúc.")
+            return
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        from datetime import datetime, timedelta
+
+        ict = _ict_tz()
+        now = datetime.now(ict)
+        if preset == "60":
+            when = now + timedelta(minutes=60)
+        elif preset == "120":
+            when = now + timedelta(minutes=120)
+        elif preset == "eve":
+            when = now.replace(hour=20, minute=0, second=0, microsecond=0)
+            if when <= now:
+                when += timedelta(days=1)
+        elif preset == "mor":
+            when = (now + timedelta(days=1)).replace(
+                hour=8, minute=0, second=0, microsecond=0)
+        else:
+            self._answer(callback_id, "Thao tác không hợp lệ.")
+            return
+        target = (state["payload"] or {}).get("target")
+        self._answer(callback_id, "Đã chọn giờ đăng.")
+        self._edit_card(
+            chat_id, message_id,
+            "🕐 Đã chọn giờ đăng — xem tin xác nhận bên dưới.")
+        self._save_schedule(user, chat_id, output, task, target, when)
+
+    def _save_schedule(self, user, chat_id, output, task, target, when):
+        """Shared tail of both time-entry paths (typed or quick
+        pick): warn about posts too close together, save, confirm,
+        and land a fresh card showing the schedule."""
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+
+        self.store.clear_user_state(user["telegram_id"])
+        if output["status"] != STATUS_APPROVED_WAITING:
+            self._send(
+                chat_id,
+                "Thẻ kênh này không còn ở trạng thái chờ đăng.")
+            return
+        when_utc = when.astimezone(_tz.utc).isoformat(timespec="seconds")
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        # Owner's warning rule — warn, never block: another post on
+        # the SAME channel scheduled within one hour either way, or
+        # published within the last hour before this slot.
+        warnings = []
+        for other in self.store.list_scheduled_outputs(output["channel"]):
+            if other["id"] == output["id"]:
+                continue
+            delta = abs((_dt.fromisoformat(other["scheduled_at"])
+                         - _dt.fromisoformat(when_utc)).total_seconds())
+            if delta < 3600:
+                warnings.append(
+                    f"⚠️ Lưu ý: kênh {label} đã có bài đặt lúc "
+                    f"{_format_created(other['scheduled_at'])} (việc "
+                    f"{other['task_code']}) — cách bài này chưa tới "
+                    "1 giờ, đăng sát nhau dễ loãng tương tác.")
+        latest_pub = self.store.latest_published_output(output["channel"])
+        if latest_pub is not None:
+            gap = (_dt.fromisoformat(when_utc)
+                   - _dt.fromisoformat(latest_pub["updated_at"])
+                   ).total_seconds()
+            if 0 <= gap < 3600:
+                warnings.append(
+                    f"⚠️ Lưu ý: kênh {label} mới đăng bài lúc "
+                    f"{_format_created(latest_pub['updated_at'])} (việc "
+                    f"{latest_pub['task_code']}) — bài này đăng tiếp "
+                    "trong vòng 1 giờ, dễ loãng tương tác.")
+        self.store.set_output_schedule(output["id"], when_utc, target)
+        self.store.audit(
+            user["telegram_id"], "schedule_set", "output", output["id"],
+            detail=f"task={task['code']} channel={output['channel']} "
+                   f"when={_format_created(when_utc)}"
+                   + (f" target={target}" if target else ""))
+        message = (
+            f"🕐 Đã đặt lịch đăng thẻ kênh {label} của việc "
+            f"{task['code']} lúc {_format_created(when_utc)} "
+            "(giờ Việt Nam).")
+        for warning in warnings:
+            message += "\n" + warning
+        self._send(chat_id, message)
+        self.send_output_card(
+            chat_id, self.store.get_output(output["id"]), task, user)
 
     def _apply_output_schedule_time(self, user, chat_id, text, payload):
         output_id = (payload or {}).get("output_id")
@@ -2659,47 +2774,7 @@ class BotApp:
                 "⏰ Chưa rõ giờ đăng. Nhắn lại theo mẫu 16:30 hoặc "
                 "24/10 16:30 (giờ Việt Nam) nhé.")
             return
-        self.store.clear_user_state(user["telegram_id"])
-        if output["status"] != STATUS_APPROVED_WAITING:
-            self._send(
-                chat_id,
-                "Thẻ kênh này không còn ở trạng thái chờ đăng.")
-            return
-        from datetime import datetime as _dt
-        from datetime import timezone as _tz
-
-        when_utc = when.astimezone(_tz.utc).isoformat(timespec="seconds")
-        # Owner's warning rule: another post on the SAME channel
-        # scheduled within one hour — warn, never block.
-        close = []
-        for other in self.store.list_scheduled_outputs(output["channel"]):
-            if other["id"] == output["id"]:
-                continue
-            delta = abs((_dt.fromisoformat(other["scheduled_at"])
-                         - _dt.fromisoformat(when_utc)).total_seconds())
-            if delta < 3600:
-                close.append(other)
-        self.store.set_output_schedule(output["id"], when_utc, target)
-        self.store.audit(
-            user["telegram_id"], "schedule_set", "output", output["id"],
-            detail=f"task={task['code']} channel={output['channel']} "
-                   f"when={_format_created(when_utc)}"
-                   + (f" target={target}" if target else ""))
-        label = CHANNELS.get(output["channel"], {}).get(
-            "label", output["channel"])
-        message = (
-            f"🕐 Đã đặt lịch đăng thẻ kênh {label} của việc "
-            f"{task['code']} lúc {_format_created(when_utc)} "
-            "(giờ Việt Nam).")
-        for other in close:
-            message += (
-                f"\n⚠️ Lưu ý: kênh {label} đã có bài đặt lúc "
-                f"{_format_created(other['scheduled_at'])} (việc "
-                f"{other['task_code']}) — cách bài này chưa tới 1 giờ, "
-                "đăng sát nhau dễ loãng tương tác.")
-        self._send(chat_id, message)
-        self.send_output_card(
-            chat_id, self.store.get_output(output["id"]), task, user)
+        self._save_schedule(user, chat_id, output, task, target, when)
 
     def _output_unschedule(self, callback_id, user, chat_id,
                            output, task, message_id):

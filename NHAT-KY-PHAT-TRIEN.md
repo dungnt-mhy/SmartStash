@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thông báo tức thì khi Chốt + chọn giờ đăng nhanh + cảnh báo cả bài vừa đăng
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Ba góp ý của chủ dự án qua ảnh chụp thẻ CV-0009: (1) bấm Chốt ở cuối wizard phải chờ (tải ảnh) mới thấy phản hồi — nay ngay khi bấm, bot gửi thêm một thông báo nhỏ "⏳ Đang gửi cho Muse…" trong cuộc trò chuyện trước khi xử lý, thông báo hoàn tất vẫn giữ nguyên. (2) Đặt lịch đăng nay có nút chọn giờ nhanh — ⏱ Sau 1 giờ / Sau 2 giờ / 🌆 Tối nay 20:00 / 🌅 Sáng mai 8:00 — bên cạnh cách nhắn giờ tự do; cảnh báo "sát nhau dưới 1 giờ" áp dụng thêm với bài VỪA ĐĂNG trên cùng kênh (trước đây chỉ tính các bài đã đặt lịch). (3) Việc sửa lịch và đăng ngay đã có sẵn trên thẻ đã đặt lịch (🕐 Đổi lịch / 🚀 Đăng — đăng ngay tự hủy lịch).
+- **Trạng thái:** Đã xong. Kiểm thử 128/128 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Tải ảnh lên kho GitHub tự thử lại khi bị xung đột 409
 - **Hạng mục:** Độ tin cậy
 - **Thay đổi:** Khi gắn nháp CV-0007 và CV-0008, một ảnh tải lên kho GitHub bị lỗi 409 (các lượt tải song song giành nhau đầu nhánh repo) khiến trang nháp suýt thiếu ảnh, phải gắn lại thủ công. Nay `ImageHost.upload` tự đọc lại mã sha và thử lại tối đa 3 lần khi gặp 409/422 trước khi chịu thua.
