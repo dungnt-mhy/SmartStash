@@ -144,6 +144,53 @@ class TelegramClient:
             reply_markup=reply_markup, **kwargs,
         )
 
+    def send_document(self, chat_id, file_path, caption=None):
+        """Upload a local file via sendDocument (multipart/form-data).
+
+        The JSON transport cannot carry uploads, so the multipart body
+        is built directly and posted to the same method URL — the
+        credential surrogate rides raw in the URL path, exactly as for
+        every other call in this client.
+        """
+        import mimetypes
+        import uuid
+        from pathlib import Path
+
+        path = Path(file_path)
+        boundary = "----musebot" + uuid.uuid4().hex
+        fields = [("chat_id", str(chat_id))]
+        if caption:
+            fields.append(("caption", caption))
+        body = bytearray()
+        for name, value in fields:
+            body += f"--{boundary}\r\n".encode()
+            body += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+            body += value.encode("utf-8") + b"\r\n"
+        content_type = mimetypes.guess_type(path.name)[0] \
+            or "application/octet-stream"
+        body += f"--{boundary}\r\n".encode()
+        body += (
+            f'Content-Disposition: form-data; name="document"; '
+            f'filename="{path.name}"\r\n'
+        ).encode()
+        body += f"Content-Type: {content_type}\r\n\r\n".encode()
+        body += path.read_bytes() + b"\r\n"
+        body += f"--{boundary}--\r\n".encode()
+        request = urllib.request.Request(
+            self.method_url("sendDocument"), data=bytes(body),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        opener = urllib.request.build_opener(_NoRedirect())
+        with opener.open(request, timeout=max(self._timeout, 120.0)) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if not isinstance(result, dict) or not result.get("ok", False):
+            description = result.get("description", "") \
+                if isinstance(result, dict) else ""
+            raise TelegramApiError(
+                f"Telegram API sendDocument failed: {description}")
+        return result.get("result")
+
     def edit_message_text(self, chat_id, message_id, text, reply_markup=None,
                           **kwargs):
         return self.call(

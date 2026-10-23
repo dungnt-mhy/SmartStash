@@ -39,7 +39,14 @@ class FakeApi:
         self.answered = []   # [{callback_query_id, text, show_alert}]
         self.edits = []      # [{chat_id, message_id, text?, reply_markup}]
         self.commands_set = []  # [{commands, scope}]
+        self.documents = []  # [{chat_id, path, caption}]
         self._next_id = 1
+
+    def send_document(self, chat_id, file_path, caption=None):
+        from pathlib import Path as _P
+        self.documents.append(
+            {"chat_id": chat_id, "path": _P(file_path), "caption": caption})
+        return {"message_id": 999}
 
     def send_message(self, chat_id, text, reply_markup=None, **kwargs):
         self.sent.append(
@@ -724,6 +731,45 @@ class BotTestCase(unittest.TestCase):
                 "Thẻ kênh Facebook" in t
                 and "https://example.com/draft/fb" in t for t in texts),
                 f"no channel card sent to {chat_id}")
+
+    def test_attach_output_draft_with_file_delivers_readable_content(self):
+        # The owner could not open the bare .md references: with --file
+        # the draft itself must arrive in Telegram as readable text,
+        # and the website channel also gets an HTML preview document.
+        task = self.create_contributor_task()
+        code = task["code"]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = Path(tmp) / f"{code}-website.md"
+            md_path.write_text(
+                "# Bản nháp Website — " + code + "\n"
+                "Kênh: Website\n\n---\n\n"
+                "## Tiêu đề\n**Bài viết hay về hội thảo**\n\n"
+                "Nội dung chính của bài viết nằm ở đây.",
+                encoding="utf-8")
+            original = botctl.build_client_or_warn
+            botctl.build_client_or_warn = lambda no_notify: self.api
+            self.api.sent.clear()
+            try:
+                args = argparse.Namespace(
+                    task_code=code, channel="website",
+                    ref=md_path.name, no_notify=False, file=str(md_path))
+                rc = botctl.cmd_attach_output_draft(self.store, args)
+            finally:
+                botctl.build_client_or_warn = original
+            self.assertEqual(rc, 0)
+            texts = self.api.texts_to(CONTRIBUTOR)
+            self.assertTrue(any(
+                "NỘI DUNG BẢN NHÁP" in t and "Bài viết hay về hội thảo" in t
+                and "Nội dung chính của bài viết" in t for t in texts))
+            # Markdown markers were flattened for the reader.
+            self.assertFalse(any("**Bài viết" in t for t in texts))
+            docs = [d for d in self.api.documents
+                    if d["chat_id"] == CONTRIBUTOR]
+            self.assertEqual(len(docs), 1)
+            self.assertTrue(docs[0]["path"].name.endswith("-preview.html"))
+            preview = docs[0]["path"].read_text(encoding="utf-8")
+            self.assertIn("Bài viết hay về hội thảo", preview)
+            self.assertIn("<strong>", preview)
 
     # --------------------------------------- new: botctl + migration cover
     def test_botctl_task_dict_includes_destinations(self):

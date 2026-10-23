@@ -20,6 +20,12 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Bản nháp đọc được ngay: toàn văn trong Telegram + bản xem trước HTML cho Website
+- **Hạng mục:** Tính năng / Trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án phản ánh bản nháp gửi dạng file/tham chiếu `.md` không mở xem được, gợi ý "gửi prototype hay kiểu draft thật". Đã sửa cơ chế chuyển nháp: `botctl attach-output-draft` thêm tuỳ chọn `--file <file.md>` — ngoài thẻ kênh, người tạo + người duyệt nhận (1) **toàn văn bản nháp** dạng tin nhắn Telegram đã gọt bỏ ký hiệu markdown (tự chia đoạn nếu dài), và (2) riêng kênh **Website**: một **file HTML xem trước** trình bày như bài thật (tiêu đề, sapo, thân bài, ảnh tư liệu nhúng base64) gửi bằng sendDocument để chạm mở bằng trình duyệt. `telegram_client` được bổ sung `send_document` (multipart). Đã áp dụng ngay cho cả 3 việc đang chờ (CV-0001, CV-0002, CV-0003 — tổng 7 đầu ra).
+- **Lý do:** Phản hồi trực tiếp của chủ dự án khi duyệt thử.
+- **Trạng thái:** Đã xong. Kiểm thử 76/76 đạt (thêm test: gắn nháp kèm --file thì toàn văn + file xem trước HTML tới được người tạo), bot không cần khởi động lại (botctl là công cụ dòng lệnh chạy riêng).
+
 ### 2026-10-23 — Cách A: duyệt bài trên thẻ kênh + gọn Bước 1 wizard (hết rối)
 - **Hạng mục:** Tính năng / Thiết kế luồng
 - **Thay đổi:** (1) Chủ dự án chốt **Cách A**: bỏ hẳn nút Gửi duyệt/Duyệt/Đăng/Thu hồi bài trên **thẻ việc gốc** — trước đây bấm Gửi duyệt là duyệt một cái vỏ chưa có bài viết nào (lỗi do chủ dự án chỉ ra khi dùng thử CV-0001). Toàn bộ duyệt/đăng chuyển xuống **thẻ kênh**, nơi có bản nháp thật. (2) Trên thẻ kênh, nút 📤 Gửi duyệt bị **chặn khi kênh chưa có bản nháp** (bot báo "Muse đang viết"), nên không còn duyệt rỗng. (3) **Trạng thái thẻ việc được tự suy ra từ các thẻ kênh** (`sync_task_status_from_outputs`): có kênh chờ duyệt → việc Chờ duyệt; tất cả đã đăng → việc Đã đăng; … (4) Lúc tạo việc, bot **không gửi thẻ việc cho người duyệt nữa** (chưa có gì để duyệt); người duyệt nhận thẻ kênh khi Muse gắn nháp (botctl attach-output-draft) và khi kênh được gửi duyệt. (5) Thẻ việc có thêm dòng **"✍️ Bản nháp: chưa có — đang chờ Muse viết bài"** / "đã có X/Y kênh". (6) Nút cũ trên các thẻ đã gửi từ trước vẫn bấm được nhưng bot trả lời hướng dẫn "duyệt trên thẻ kênh", không đổi trạng thái. (7) **Bước 1 wizard hết rối:** bỏ tin xác nhận + khối nút lặp lại dưới mỗi ảnh; thay bằng **một tin đếm file duy nhất được sửa tại chỗ** ("📎 Đã nhận N file…"), nút ✅ Xong/❌ Huỷ chỉ còn trên bàn phím ghim bên dưới.

@@ -17,7 +17,10 @@ Usage:
 - list-outputs: print the per-channel outputs of a task as JSON.
 - attach-output-draft: store the draft reference on one channel output
   (status stays DRAFT) and send that channel's card to the creator +
-  reviewers in Telegram.
+  reviewers in Telegram. With --file <draft.md>, also deliver the
+  draft itself: the full text as Telegram messages, plus (website
+  channel only) an HTML preview document that opens like the real
+  article — nobody has to open a raw .md file to review.
 - set-output-published: mark one channel output PUBLISHED with its
   public URL and send its card to the creator + admins.
 
@@ -89,6 +92,190 @@ def _notify_output(store, client, task, output, user_rows):
             app.send_output_card(row["chat_id"], output, task, row)
         except Exception as exc:
             print(f"Cảnh báo: không gửi được thẻ kênh tới "
+                  f"{row['telegram_id']}: {exc}", file=sys.stderr)
+
+
+def _strip_draft_scaffolding(md: str) -> str:
+    """Drop the leading meta block ("# Bản nháp ..." header + the rule
+    under it) that Muse's draft files carry, leaving the content the
+    reader should see."""
+    text = md.replace("\r\n", "\n")
+    if text.startswith("# Bản nháp") and "\n---\n" in text[:800]:
+        text = text.split("\n---\n", 1)[1]
+    return text.strip()
+
+
+def md_to_telegram_text(md: str) -> str:
+    """Flatten markdown into clean plain text for Telegram messages —
+    no raw ** or ## for the reader to trip over."""
+    import re
+
+    out = []
+    for line in _strip_draft_scaffolding(md).split("\n"):
+        s = line.rstrip()
+        s = re.sub(r"^#{1,6}\s*", "", s)
+        s = re.sub(r"^\s*---+\s*$", "", s)
+        s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+        s = re.sub(r"(?<!\w)\*([^*\n]+)\*(?!\w)", r"\1", s)
+        s = s.replace("`", "")
+        if s.startswith("- "):
+            s = "• " + s[2:]
+        out.append(s)
+    return "\n".join(out).strip()
+
+
+def _chunk_text(text: str, limit: int = 3900):
+    chunks, current = [], ""
+    for para in text.split("\n"):
+        candidate = (current + "\n" + para) if current else para
+        if len(candidate) > limit and current:
+            chunks.append(current)
+            current = para
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def md_to_preview_html(md: str, title: str, photo_paths) -> str:
+    """Render a website draft as a standalone, phone-friendly HTML page
+    that looks like the real article (title, sapo, body, the task's
+    photos embedded) — the reader taps the file in Telegram and reads
+    it in the browser instead of fighting a raw .md file."""
+    import base64
+    import html as html_mod
+    import re
+
+    def inline(s: str) -> str:
+        s = html_mod.escape(s)
+        s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+        s = re.sub(r"(?<!\w)\*([^*\n]+)\*(?!\w)", r"<em>\1</em>", s)
+        return s
+
+    photos_html = ""
+    if photo_paths:
+        imgs = []
+        for p in photo_paths:
+            try:
+                b64 = base64.b64encode(p.read_bytes()).decode()
+            except OSError:
+                continue
+            mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+            imgs.append(
+                f'<img src="data:{mime};base64,{b64}" alt="Ảnh tư liệu">')
+        if imgs:
+            photos_html = '<div class="photos">' + "".join(imgs) + "</div>"
+
+    blocks, list_open, inserted = [], False, False
+
+    def close_list():
+        nonlocal list_open
+        if list_open:
+            blocks.append("</ul>")
+            list_open = False
+
+    for raw in _strip_draft_scaffolding(md).split("\n"):
+        line = raw.strip()
+        if not line:
+            close_list()
+            continue
+        if line.startswith("*Ghi chú") or line.startswith("**Tiêu đề SEO") \
+                or line.startswith("**Mô tả SEO"):
+            close_list()
+            continue
+        if line.startswith("### "):
+            close_list(); blocks.append(f"<h3>{inline(line[4:])}</h3>")
+        elif line.startswith("## "):
+            close_list(); blocks.append(f"<h2>{inline(line[3:])}</h2>")
+        elif line.startswith("# "):
+            close_list(); blocks.append(f"<h1>{inline(line[2:])}</h1>")
+        elif line.startswith("- "):
+            if not list_open:
+                blocks.append("<ul>"); list_open = True
+            blocks.append(f"<li>{inline(line[2:])}</li>")
+        else:
+            close_list(); blocks.append(f"<p>{inline(line)}</p>")
+        if not inserted and photos_html and len(blocks) >= 2:
+            blocks.append(photos_html)
+            inserted = True
+    close_list()
+    if photos_html and not inserted:
+        blocks.insert(0, photos_html)
+    return (
+        "<!doctype html><html lang=\"vi\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, "
+        "initial-scale=1\">"
+        f"<title>{html_mod.escape(title)}</title><style>"
+        "body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;"
+        "max-width:720px;margin:0 auto;padding:20px 16px 48px;"
+        "line-height:1.65;color:#1a1a1a;background:#fff}"
+        "h1{font-size:26px;line-height:1.3;margin:8px 0 12px}"
+        "h2{font-size:20px;margin:24px 0 8px}h3{font-size:17px}"
+        "p{margin:10px 0}img{max-width:100%;border-radius:10px;"
+        "margin:8px 0}.photos{margin:12px 0}"
+        ".tag{display:inline-block;background:#eef4ff;color:#2952a3;"
+        "border-radius:999px;padding:2px 10px;font-size:12px}"
+        "</style></head><body>"
+        "<span class=\"tag\">BẢN NHÁP — XEM TRƯỚC NHƯ BÀI THẬT</span>"
+        + "".join(blocks) +
+        "</body></html>"
+    )
+
+
+def _deliver_draft_content(store, client, task, output, md_path):
+    """Send the draft's full content to the creator + reviewers in
+    Telegram: readable text messages for every channel, plus — for the
+    website channel — an HTML preview document. Best effort: a failed
+    send warns on stderr and never fails the attach itself."""
+    if client is None:
+        return
+    from storage import CHANNELS
+
+    try:
+        md = md_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Cảnh báo: không đọc được file nháp {md_path}: {exc}",
+              file=sys.stderr)
+        return
+    label = CHANNELS.get(output["channel"], {}).get(
+        "label", output["channel"])
+    recipients = _recipients_for_draft(store, task)
+    plain = md_to_telegram_text(md)
+    header = f"📄 NỘI DUNG BẢN NHÁP — {label} · Việc {task['code']}"
+    chunks = _chunk_text(plain)
+    preview_path = None
+    if output["channel"] == "website":
+        files_dir = DEFAULT_DATA_DIR / "files" / task["code"]
+        photos = sorted(files_dir.glob("*")) if files_dir.is_dir() else []
+        title = next(
+            (ln.lstrip("# ").strip() for ln in
+             _strip_draft_scaffolding(md).split("\n")
+             if ln.startswith("#")), task["code"])
+        preview_path = md_path.with_name(md_path.stem + "-preview.html")
+        try:
+            preview_path.write_text(
+                md_to_preview_html(md, title, photos), encoding="utf-8")
+        except OSError as exc:
+            print(f"Cảnh báo: không tạo được bản xem trước HTML: {exc}",
+                  file=sys.stderr)
+            preview_path = None
+    send_document = getattr(client, "send_document", None)
+    for row in recipients:
+        if row["chat_id"] is None:
+            continue
+        try:
+            for i, chunk in enumerate(chunks):
+                text = (header + "\n\n" + chunk) if i == 0 else chunk
+                client.send_message(row["chat_id"], text)
+            if preview_path is not None and send_document is not None:
+                send_document(
+                    row["chat_id"], preview_path,
+                    caption=f"👀 Xem trước bản nháp Website của việc "
+                            f"{task['code']} như bài thật — chạm để mở "
+                            "bằng trình duyệt.")
+        except Exception as exc:
+            print(f"Cảnh báo: không gửi được nội dung nháp tới "
                   f"{row['telegram_id']}: {exc}", file=sys.stderr)
 
 
@@ -232,6 +419,13 @@ def cmd_attach_output_draft(store, args) -> int:
     output = store.get_output(output["id"])
     _notify_output(store, client, task, output,
                    _recipients_for_draft(store, task))
+    # With --file, the reader also receives the draft itself: full text
+    # in Telegram (+ an HTML preview document for the website channel),
+    # so nobody has to open a raw .md file to review it.
+    draft_file = getattr(args, "file", None)
+    if draft_file:
+        _deliver_draft_content(
+            store, client, task, output, Path(draft_file))
     print(f"Đã gắn bản nháp cho đầu ra {args.channel} của "
           f"{args.task_code}: {args.ref}")
     return 0
@@ -287,6 +481,10 @@ def main(argv=None) -> int:
     p_odraft.add_argument("channel")
     p_odraft.add_argument("ref")
     p_odraft.add_argument("--no-notify", action="store_true")
+    p_odraft.add_argument(
+        "--file", default=None,
+        help="File .md chứa nội dung nháp: gửi kèm toàn văn vào Telegram "
+             "(và bản xem trước HTML cho kênh website)")
 
     p_opub = sub.add_parser(
         "set-output-published",
