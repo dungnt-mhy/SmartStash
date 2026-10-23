@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS outputs (
     draft_ref     TEXT,
     public_url    TEXT,
     reject_reason TEXT,
+    scheduled_at  TEXT,
+    publish_target TEXT,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL,
     UNIQUE(task_code, channel)
@@ -181,6 +183,16 @@ class Store:
                 "ALTER TABLE tasks ADD COLUMN destinations TEXT NOT NULL"
                 " DEFAULT '[\"website\", \"facebook\", \"instagram\"]'"
             )
+        out_columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(outputs)")
+        }
+        if "scheduled_at" not in out_columns:
+            self._conn.execute(
+                "ALTER TABLE outputs ADD COLUMN scheduled_at TEXT")
+        if "publish_target" not in out_columns:
+            self._conn.execute(
+                "ALTER TABLE outputs ADD COLUMN publish_target TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -476,6 +488,39 @@ class Store:
                 " WHERE id = ?",
                 (draft_ref, utcnow_iso(), output_id),
             )
+
+    def set_output_schedule(self, output_id: int, scheduled_at,
+                            publish_target=None) -> None:
+        """Set (or clear, with None) an output's scheduled publish
+        time — a UTC ISO timestamp — and its chosen publish target."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE outputs SET scheduled_at = ?, publish_target = ?,"
+                " updated_at = ? WHERE id = ?",
+                (scheduled_at, publish_target, utcnow_iso(), output_id),
+            )
+
+    def list_due_outputs(self, now_iso: str):
+        """Scheduled outputs whose time has come and that still wait
+        to be published."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM outputs WHERE scheduled_at IS NOT NULL"
+                " AND scheduled_at <= ? AND status = 'APPROVED_WAITING'"
+                " ORDER BY scheduled_at, id",
+                (now_iso,),
+            ).fetchall()
+
+    def list_scheduled_outputs(self, channel: str):
+        """All outputs currently holding a schedule on one channel —
+        used for the too-close-together warning."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM outputs WHERE scheduled_at IS NOT NULL"
+                " AND status = 'APPROVED_WAITING' AND channel = ?"
+                " ORDER BY scheduled_at",
+                (channel,),
+            ).fetchall()
 
     def set_output_public_url(self, output_id: int, url: str) -> None:
         with self._lock, self._conn:

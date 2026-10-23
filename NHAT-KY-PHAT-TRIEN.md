@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Đặt lịch đăng + cảnh báo bài đăng sát nhau dưới 1 giờ
+- **Hạng mục:** Tính năng mới
+- **Thay đổi:** Chủ dự án yêu cầu thêm chức năng đặt lịch đăng kèm cảnh báo khi các bài đăng quá sát nhau (ví dụ 1 giờ). Đã triển khai: nút **🕐 Đặt lịch đăng** trên thẻ kênh đã duyệt chờ đăng (việc của Admin bấm ngay từ lúc có nháp, tự qua duyệt như nút Đăng). Facebook vẫn chốt nơi đăng (Trang cá nhân / Fanpage, có nút Hủy) trước khi nhập giờ; giờ nhập dạng `16:30` (hôm nay, qua giờ tính ngày mai) hoặc `24/10 16:30`, giờ Việt Nam. Thẻ hiện thêm dòng "🕐 Lịch đăng: ..." và có nút Đổi lịch / ❌ Hủy lịch; bấm Đăng ngay sẽ hủy lịch. **Cảnh báo:** nếu kênh đó đã có bài đặt cách chưa tới 1 giờ, tin xác nhận kèm dòng "⚠️ Lưu ý ... đăng sát nhau dễ loãng tương tác" (chỉ cảnh báo, vẫn đặt lịch). Đến giờ, bot tự ghi lệnh đăng kèm nơi đăng đã chốt, báo "⏰ Đến lịch đăng ..." về Telegram và Muse đăng thật như lệnh đăng thường.
+- **Trạng thái:** Đã xong. Kiểm thử 116/116 đạt, bot đã khởi động lại, cơ sở dữ liệu đã nâng cấp thêm cột lịch đăng/nơi đăng.
+
 ### 2026-10-23 — Nút Hủy đăng ở bước chọn nơi đăng Facebook
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án yêu cầu "ở chỗ chọn nơi đăng cũng có nút hủy". Tin nhắn chọn nơi đăng (Trang cá nhân / Fanpage Minhy) nay có thêm nút **🗑 Hủy đăng**: bấm là hủy lệnh đăng ngay tại bước chọn (chưa ghi nhận lệnh nào), tin nhắn chọn tự sửa thành thông báo đã hủy và gỡ nút; bài vẫn ở trạng thái chờ đăng, thẻ kênh còn nguyên nút 🚀 Đăng để đăng lại khi cần (có audit `publish_aborted`).

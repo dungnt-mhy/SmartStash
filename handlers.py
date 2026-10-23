@@ -256,6 +256,62 @@ def _display_name(tg_user: dict) -> str:
     return name or tg_user.get("username") or str(tg_user.get("id"))
 
 
+def _ict_tz():
+    global _ICT
+    if _ICT is None:
+        from datetime import timedelta, timezone
+
+        _ICT = timezone(timedelta(hours=7), name="ICT")
+    return _ICT
+
+
+def _parse_schedule_input(text: str):
+    """Parse a publish time typed in chat (Vietnam time).
+
+    Accepted: "16:30" (today, or tomorrow when that time has already
+    passed), "24/10 16:30" and "16:30 24/10", year optional. Returns
+    an aware datetime in Vietnam time, or None when the text is
+    unclear or the moment is already past."""
+    import re
+    from datetime import datetime, timedelta
+
+    ict = _ict_tz()
+    now = datetime.now(ict)
+    text = (text or "").strip()
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", text)
+    if m:
+        try:
+            candidate = now.replace(hour=int(m.group(1)),
+                                    minute=int(m.group(2)),
+                                    second=0, microsecond=0)
+        except ValueError:
+            return None
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate
+    m = re.fullmatch(
+        r"(?:(\d{1,2})/(\d{1,2})(?:/(\d{4}))?\s+)?"
+        r"(\d{1,2}):(\d{2})"
+        r"(?:\s+(\d{1,2})/(\d{1,2})(?:/(\d{4}))?)?",
+        text)
+    if not m:
+        return None
+    day = m.group(1) or m.group(6)
+    month = m.group(2) or m.group(7)
+    year = m.group(3) or m.group(8)
+    if day is None:
+        return None
+    try:
+        candidate = datetime(
+            int(year) if year else now.year, int(month), int(day),
+            int(m.group(4)), int(m.group(5)), tzinfo=ict)
+    except ValueError:
+        return None
+    if candidate <= now:
+        return None
+    return candidate
+
+
 class BotApp:
     def __init__(self, store, api, files_dir=None, download_files: bool = False):
         self.store = store
@@ -394,6 +450,13 @@ class BotApp:
         # expected to type what Muse should change in the draft.
         if state and state["state"] == "await_output_revise_reason" and text:
             self._apply_output_revise_reason(
+                user, chat_id, text, state["payload"])
+            return
+
+        # A publisher who tapped "Đặt lịch đăng" is expected to type
+        # the publish time.
+        if state and state["state"] == "await_output_schedule_time" and text:
+            self._apply_output_schedule_time(
                 user, chat_id, text, state["payload"])
             return
 
@@ -1909,6 +1972,9 @@ class BotApp:
         ]
         if output["draft_ref"]:
             lines.append(f"📄 Bản nháp: {output['draft_ref']}")
+        if output["scheduled_at"]:
+            lines.append(
+                f"🕐 Lịch đăng: {_format_created(output['scheduled_at'])}")
         if output["public_url"]:
             lines.append(f"🔗 Đã đăng: {output['public_url']}")
         if output["status"] == STATUS_REJECTED and output["reject_reason"]:
@@ -1940,6 +2006,8 @@ class BotApp:
             # Hủy bài.
             if output["draft_ref"]:
                 rows.append([_btn("🚀 Đăng", f"out_publish:{oid}")])
+                rows.append([_btn("🕐 Đặt lịch đăng",
+                                  f"out_schedule:{oid}")])
                 rows.append([
                     _btn("✏️ Sửa lại", f"out_revise:{oid}"),
                     _btn("🗑 Hủy bài", f"out_cancel:{oid}"),
@@ -1968,6 +2036,14 @@ class BotApp:
             ])
         if status == STATUS_APPROVED_WAITING:
             rows.append([_btn("🚀 Đăng", f"out_publish:{oid}")])
+            if output["scheduled_at"]:
+                rows.append([
+                    _btn("🕐 Đổi lịch", f"out_schedule:{oid}"),
+                    _btn("❌ Hủy lịch", f"out_unschedule:{oid}"),
+                ])
+            else:
+                rows.append([_btn("🕐 Đặt lịch đăng",
+                                  f"out_schedule:{oid}")])
         if status == STATUS_PUBLISHED:
             rows.append([_btn("↩️ Thu hồi", f"out_retract:{oid}")])
         return _keyboard(rows)
@@ -2081,6 +2157,18 @@ class BotApp:
                 callback_id, user, chat_id, output, task, extra, message_id)
         elif action == "out_pubabort":
             self._output_publish_abort(
+                callback_id, user, chat_id, output, task, message_id)
+        elif action == "out_schedule":
+            self._output_schedule_start(
+                callback_id, user, chat_id, output, task)
+        elif action == "out_schto":
+            self._output_schedule_target(
+                callback_id, user, chat_id, output, task, extra, message_id)
+        elif action == "out_schabort":
+            self._output_schedule_abort(
+                callback_id, user, chat_id, output, task, message_id)
+        elif action == "out_unschedule":
+            self._output_unschedule(
                 callback_id, user, chat_id, output, task, message_id)
         elif action == "out_retract":
             self._output_retract_start(
@@ -2388,6 +2476,8 @@ class BotApp:
                           f"out_pubabort:{output['id']}")],
                 ]))
             return
+        if output["scheduled_at"]:
+            self.store.set_output_schedule(output["id"], None, None)
         self.store.audit(user["telegram_id"], "publish_requested",
                          "output", output["id"],
                          detail=f"task={task['code']} "
@@ -2418,6 +2508,8 @@ class BotApp:
                          "Thẻ kênh này chưa ở trạng thái chờ đăng.",
                          show_alert=True)
             return
+        if output["scheduled_at"]:
+            self.store.set_output_schedule(output["id"], None, None)
         self.store.audit(user["telegram_id"], "publish_requested",
                          "output", output["id"],
                          detail=f"task={task['code']} "
@@ -2454,6 +2546,218 @@ class BotApp:
             f"🚫 Đã hủy đăng bài Facebook của việc {task['code']}. "
             "Bài vẫn ở trạng thái chờ đăng — bấm 🚀 Đăng trên thẻ "
             "kênh khi muốn đăng lại.")
+
+    # ------------------------------------------------ scheduling
+    def _output_schedule_start(self, callback_id, user, chat_id,
+                               output, task):
+        """First tap of Đặt lịch đăng. An Admin scheduling their own
+        draft walks the same silent approval as the Đăng button."""
+        if output["status"] in (STATUS_DRAFT, STATUS_REJECTED,
+                                STATUS_PENDING):
+            if not (task["creator_id"] == user["telegram_id"]
+                    and user["role"] == roles.ROLE_ADMIN
+                    and output["draft_ref"]):
+                self._answer(
+                    callback_id,
+                    "Bài phải được duyệt trước khi đặt lịch đăng.",
+                    show_alert=True)
+                return
+            self.store.set_output_status(
+                output["id"], STATUS_APPROVED_WAITING)
+            self.store.audit(
+                user["telegram_id"], "approve_output", "output",
+                output["id"],
+                detail=f"task={task['code']} "
+                       f"channel={output['channel']} auto=admin_own")
+            self.store.sync_task_status_from_outputs(task["code"])
+            output = self.store.get_output(output["id"])
+        if output["status"] != STATUS_APPROVED_WAITING:
+            self._answer(callback_id,
+                         "Thẻ kênh này chưa ở trạng thái đặt lịch được.",
+                         show_alert=True)
+            return
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["channel"] == "facebook":
+            # Same rule as publishing: the target is chosen here,
+            # in Telegram, before the time is typed.
+            self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
+            self._send(
+                chat_id,
+                f"📘 Đặt lịch đăng bài Facebook của việc {task['code']} "
+                "lên đâu?",
+                reply_markup=_keyboard([
+                    [_btn("👤 Trang cá nhân",
+                          f"out_schto:{output['id']}:profile")],
+                    [_btn("📄 Fanpage Minhy",
+                          f"out_schto:{output['id']}:page")],
+                    [_btn("🗑 Hủy",
+                          f"out_schabort:{output['id']}")],
+                ]))
+            return
+        self.store.set_user_state(
+            user["telegram_id"], "await_output_schedule_time",
+            {"output_id": output["id"], "target": None})
+        self._answer(callback_id, "Hãy nhắn giờ đăng.")
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        self._send(
+            chat_id,
+            f"🕐 Đặt lịch đăng thẻ kênh {label} của việc {task['code']}: "
+            "nhắn giờ theo mẫu 16:30 (hôm nay — qua giờ thì tính ngày "
+            "mai) hoặc 24/10 16:30. Giờ Việt Nam.")
+
+    def _output_schedule_target(self, callback_id, user, chat_id,
+                                output, task, target, message_id):
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["channel"] != "facebook" \
+                or target not in FB_PUBLISH_TARGETS \
+                or output["status"] != STATUS_APPROVED_WAITING:
+            self._answer(callback_id, "Thao tác không hợp lệ.")
+            return
+        self.store.set_user_state(
+            user["telegram_id"], "await_output_schedule_time",
+            {"output_id": output["id"], "target": target})
+        label = FB_PUBLISH_TARGETS[target]
+        self._answer(callback_id, f"Đã chọn {label} — nhắn giờ đăng 👇")
+        self._edit_card(
+            chat_id, message_id,
+            f"📘 Đặt lịch đăng lên {label}. Nhắn giờ đăng theo mẫu "
+            "16:30 hoặc 24/10 16:30 (giờ Việt Nam).")
+
+    def _output_schedule_abort(self, callback_id, user, chat_id,
+                               output, task, message_id):
+        self._answer(callback_id, "Đã hủy đặt lịch.")
+        self._edit_card(
+            chat_id, message_id,
+            f"🚫 Đã hủy đặt lịch đăng bài Facebook của việc "
+            f"{task['code']}.")
+
+    def _apply_output_schedule_time(self, user, chat_id, text, payload):
+        output_id = (payload or {}).get("output_id")
+        target = (payload or {}).get("target")
+        output = self.store.get_output(output_id) \
+            if output_id is not None else None
+        if output is None:
+            self.store.clear_user_state(user["telegram_id"])
+            self._send(chat_id, "Không tìm thấy thẻ kênh cần đặt lịch.")
+            return
+        task = self.store.get_task(output["task_code"])
+        when = _parse_schedule_input(text)
+        if when is None:
+            # Keep the pending state so they can simply type again.
+            self._send(
+                chat_id,
+                "⏰ Chưa rõ giờ đăng. Nhắn lại theo mẫu 16:30 hoặc "
+                "24/10 16:30 (giờ Việt Nam) nhé.")
+            return
+        self.store.clear_user_state(user["telegram_id"])
+        if output["status"] != STATUS_APPROVED_WAITING:
+            self._send(
+                chat_id,
+                "Thẻ kênh này không còn ở trạng thái chờ đăng.")
+            return
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+
+        when_utc = when.astimezone(_tz.utc).isoformat(timespec="seconds")
+        # Owner's warning rule: another post on the SAME channel
+        # scheduled within one hour — warn, never block.
+        close = []
+        for other in self.store.list_scheduled_outputs(output["channel"]):
+            if other["id"] == output["id"]:
+                continue
+            delta = abs((_dt.fromisoformat(other["scheduled_at"])
+                         - _dt.fromisoformat(when_utc)).total_seconds())
+            if delta < 3600:
+                close.append(other)
+        self.store.set_output_schedule(output["id"], when_utc, target)
+        self.store.audit(
+            user["telegram_id"], "schedule_set", "output", output["id"],
+            detail=f"task={task['code']} channel={output['channel']} "
+                   f"when={_format_created(when_utc)}"
+                   + (f" target={target}" if target else ""))
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        message = (
+            f"🕐 Đã đặt lịch đăng thẻ kênh {label} của việc "
+            f"{task['code']} lúc {_format_created(when_utc)} "
+            "(giờ Việt Nam).")
+        for other in close:
+            message += (
+                f"\n⚠️ Lưu ý: kênh {label} đã có bài đặt lúc "
+                f"{_format_created(other['scheduled_at'])} (việc "
+                f"{other['task_code']}) — cách bài này chưa tới 1 giờ, "
+                "đăng sát nhau dễ loãng tương tác.")
+        self._send(chat_id, message)
+        self.send_output_card(
+            chat_id, self.store.get_output(output["id"]), task, user)
+
+    def _output_unschedule(self, callback_id, user, chat_id,
+                           output, task, message_id):
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["status"] != STATUS_APPROVED_WAITING \
+                or not output["scheduled_at"]:
+            self._answer(callback_id,
+                         "Thẻ kênh này chưa có lịch đăng.",
+                         show_alert=True)
+            return
+        self.store.set_output_schedule(output["id"], None, None)
+        self.store.audit(
+            user["telegram_id"], "schedule_cancelled", "output",
+            output["id"],
+            detail=f"task={task['code']} channel={output['channel']}")
+        self._answer(callback_id, "Đã hủy lịch đăng.")
+        updated = self.store.get_output(output["id"])
+        self._edit_card(
+            chat_id, message_id,
+            self.output_card_text(updated, task),
+            reply_markup=self.output_keyboard(updated, user))
+
+    def fire_due_schedules(self):
+        """Fire every scheduled output whose time has come: record
+        the same publish_requested event the Đăng button produces
+        (the background watcher picks it up and Muse publishes),
+        and tell the creator and admins the post is going out."""
+        from datetime import datetime, timezone
+
+        now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        for output in self.store.list_due_outputs(now_iso):
+            task = self.store.get_task(output["task_code"])
+            target = output["publish_target"]
+            self.store.set_output_schedule(output["id"], None, None)
+            if task is None:
+                continue
+            detail = (f"task={task['code']} "
+                      f"channel={output['channel']} scheduled=1")
+            if target:
+                detail += f" target={target}"
+            self.store.audit(None, "publish_requested", "output",
+                             output["id"], detail=detail)
+            label = CHANNELS.get(output["channel"], {}).get(
+                "label", output["channel"])
+            recipients = []
+            creator = self.store.get_user(task["creator_id"])
+            if creator is not None and creator["chat_id"]:
+                recipients.append(creator["chat_id"])
+            for admin in self.store.admins():
+                if admin["chat_id"] and \
+                        admin["chat_id"] not in recipients:
+                    recipients.append(admin["chat_id"])
+            for rcpt in recipients:
+                self._send(
+                    rcpt,
+                    f"⏰ Đến lịch đăng thẻ kênh {label} của việc "
+                    f"{task['code']} — Muse đang đăng, link bài sẽ "
+                    "được gửi ngay khi đăng xong.")
 
     def _output_retract_start(self, callback_id, user, chat_id, output, task):
         if output["status"] != STATUS_PUBLISHED:

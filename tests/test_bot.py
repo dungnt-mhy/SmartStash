@@ -556,6 +556,121 @@ class BotTestCase(unittest.TestCase):
         self.assertIn(f"out_submit:{web['id']}", data)
         self.assertIn(f"out_revise:{web['id']}", data)
 
+    # ------------------------------------------------ scheduling
+    def _future_hhmm(self, hours=2):
+        from datetime import datetime, timedelta, timezone
+        ict = timezone(timedelta(hours=7))
+        return (datetime.now(ict) + timedelta(hours=hours)).strftime("%H:%M")
+
+    def test_parse_schedule_input(self):
+        from handlers import _parse_schedule_input
+        self.assertIsNone(_parse_schedule_input("abc"))
+        self.assertIsNone(_parse_schedule_input("25:00"))
+        self.assertIsNone(_parse_schedule_input("30/02 10:00"))
+        self.assertIsNone(_parse_schedule_input("01/01 00:01"))
+        got = _parse_schedule_input("31/12 23:59")
+        self.assertIsNotNone(got)
+        self.assertEqual((got.day, got.month, got.hour, got.minute),
+                         (31, 12, 23, 59))
+        got = _parse_schedule_input("23:59 31/12")
+        self.assertIsNotNone(got)
+        self.assertEqual((got.day, got.month), (31, 12))
+
+    def test_schedule_website_and_close_warning(self):
+        # First post scheduled on website ~2h from now: no warning.
+        task = self.create_admin_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(web["id"], "https://example.com/d/web")
+        self.store.set_output_status(web["id"], "APPROVED_WAITING")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{web['id']}"))
+        self.app.handle_update(
+            message_update(ADMIN, text=self._future_hhmm(2)))
+        updated = self.store.get_output(web["id"])
+        self.assertIsNotNone(updated["scheduled_at"])
+        self.assertFalse(any("⚠️ Lưu ý" in t for t in self.api.texts_to(ADMIN)))
+        # A second website post 30 minutes later triggers the
+        # too-close warning (but is still scheduled).
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, text="Việc thứ hai"))
+        task2 = [t for t in self.store.list_tasks()
+                 if t["creator_id"] == CONTRIBUTOR][0]
+        web2 = self.store.get_output_by_channel(task2["code"], "website")
+        self.store.set_output_draft(web2["id"], "https://example.com/d/w2")
+        self.store.set_output_status(web2["id"], "APPROVED_WAITING")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{web2['id']}"))
+        self.api.sent.clear()
+        self.app.handle_update(
+            message_update(ADMIN, text=self._future_hhmm(2.5)))
+        self.assertIsNotNone(self.store.get_output(web2["id"])["scheduled_at"])
+        warns = [t for t in self.api.texts_to(ADMIN) if "⚠️ Lưu ý" in t]
+        self.assertEqual(len(warns), 1)
+        self.assertIn(task["code"], warns[0])
+
+    def test_schedule_facebook_target_then_fire(self):
+        from datetime import datetime, timezone
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        self.store.set_output_status(fb["id"], "APPROVED_WAITING")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{fb['id']}"))
+        choice = self.api.sent[-1]
+        data = [b["callback_data"]
+                for row in choice["reply_markup"]["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_schto:{fb['id']}:page", data)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schto:{fb['id']}:page"))
+        self.app.handle_update(
+            message_update(ADMIN, text=self._future_hhmm(3)))
+        updated = self.store.get_output(fb["id"])
+        self.assertIsNotNone(updated["scheduled_at"])
+        self.assertEqual(updated["publish_target"], "page")
+        # Force it due: firing records the publish request WITH the
+        # target, clears the schedule and notifies.
+        past = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.store.set_output_schedule(fb["id"], past, "page")
+        self.api.sent.clear()
+        self.app.fire_due_schedules()
+        updated = self.store.get_output(fb["id"])
+        self.assertIsNone(updated["scheduled_at"])
+        reqs = self.store.audit_entries("publish_requested")
+        self.assertEqual(len(reqs), 1)
+        self.assertIn("target=page", reqs[0]["detail"])
+        self.assertIn("scheduled=1", reqs[0]["detail"])
+        self.assertTrue(any("Đến lịch đăng" in t
+                            for t in self.api.texts_to(ADMIN)))
+
+    def test_unschedule_clears_and_admin_fast_track(self):
+        from datetime import datetime, timezone
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        # Admin-own DRAFT: Đặt lịch walks the silent approval first,
+        # then asks for the Facebook target.
+        admin = self.store.get_user(ADMIN)
+        markup = self.app.output_keyboard(
+            self.store.get_output(fb["id"]), admin)
+        data = [b["callback_data"] for row in markup["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_schedule:{fb['id']}", data)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{fb['id']}"))
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "APPROVED_WAITING")
+        # Give it a schedule directly, then cancel via the card.
+        future = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.store.set_output_schedule(fb["id"], future, "page")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_unschedule:{fb['id']}"))
+        updated = self.store.get_output(fb["id"])
+        self.assertIsNone(updated["scheduled_at"])
+        self.assertEqual(
+            len(self.store.audit_entries("schedule_cancelled")), 1)
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

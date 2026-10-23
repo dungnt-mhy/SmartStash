@@ -63,6 +63,11 @@ def main(argv=None) -> int:
                 if update_id is not None:
                     offset = update_id + 1
                     store.set_meta("update_offset", str(offset))
+            # Scheduled publishes: fire whatever is due this round.
+            try:
+                app.fire_due_schedules()
+            except Exception as exc:
+                print(f"Kiểm tra lịch đăng lỗi: {exc}", file=sys.stderr)
     except KeyboardInterrupt:
         print("\nĐã dừng bot.")
     finally:
