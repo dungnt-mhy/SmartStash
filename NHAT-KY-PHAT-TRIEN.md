@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thông báo "Muse đang làm": gom theo từng việc, có vạch ngăn
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án chê danh sách trạng thái nối dài bằng dấu phẩy khó đọc ("CV-0002 · Website, CV-0002 · Facebook, …"). Nay `_cmd_claude_status` trình bày **theo từng việc**: mỗi việc một khối "▸ MÃ VIỆC — gợi ý" và dòng kênh nằm dưới ("Website • Facebook • Instagram"); các mục (chờ viết nháp / đã có nháp / chờ duyệt) cách nhau bằng vạch "────────────". Đã kiểm chứng trên dữ liệu test thật của chủ dự án (CV-0001, CV-0002 sau reset).
+- **Trạng thái:** Đã xong. Kiểm thử 85/85 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Tinh chỉnh nút chốt: hoán vị trí, đổi tên "Chốt! Gửi cho Muse", chỉ 1 tin thông báo sau khi chốt
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo yêu cầu trực tiếp của chủ dự án: hàng nút dưới cùng của thẻ việc đổi thứ tự thành **[✅ Chốt! Gửi cho Muse] [🗑 Thu hồi việc]** (nút chốt đứng trước, tên đúng nguyên văn chủ dự án đặt). Sau khi bấm chốt, bot **chỉ gửi đúng 1 tin thông báo** ("Đã chốt kênh đăng bài… Đã gửi đến Muse. Đợi Muse làm xong…") rồi im lặng chờ — **không gửi kèm loạt thẻ kênh** như bản trước nữa; thẻ kênh sẽ đến sau, cùng bản nháp khi Muse làm xong. Thẻ việc vẫn đóng băng tại chỗ như đã chốt ở mục trước.

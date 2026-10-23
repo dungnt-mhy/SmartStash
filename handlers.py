@@ -673,36 +673,51 @@ class BotApp:
     def _cmd_claude_status(self, user, tg_user, chat_id):
         """What Muse is currently working on, from live bot data:
         channels still waiting for a draft, drafts waiting to be
-        submitted, and cards waiting for review."""
-        writing, drafted, reviewing = [], [], []
+        submitted, and cards waiting for review. Grouped per task —
+        one block per job, sections split by a divider line, so the
+        list stays readable instead of one long comma chain."""
+        groups = {"writing": [], "drafted": [], "reviewing": []}
         for task in self.store.list_tasks():
             if task["status"] in (STATUS_CANCELLED, STATUS_RETRACTED,
                                   STATUS_PUBLISHED):
                 continue
+            per_task = {"writing": [], "drafted": [], "reviewing": []}
             for output in self.store.list_outputs(task["code"]):
                 if output["status"] == STATUS_CANCELLED:
                     continue
                 label = CHANNELS.get(output["channel"], {}).get(
                     "label", output["channel"])
-                item = f"{task['code']} · {label}"
                 if output["status"] == STATUS_PENDING:
-                    reviewing.append(item)
+                    per_task["reviewing"].append(label)
                 elif not output["draft_ref"]:
-                    writing.append(item)
+                    per_task["writing"].append(label)
                 elif output["status"] == STATUS_DRAFT:
-                    drafted.append(item)
+                    per_task["drafted"].append(label)
+            hint = (task["hint"] or "").replace("\n", " ")[:45]
+            for key, labels in per_task.items():
+                if labels:
+                    groups[key].append((task["code"], hint, labels))
+        sections = []
+        for key, title in (
+            ("writing", "✍️ Đang chờ Muse viết nháp:"),
+            ("drafted", "📄 Đã có nháp, chờ gửi duyệt:"),
+            ("reviewing", "⏳ Đang chờ duyệt:"),
+        ):
+            entries = groups[key]
+            if not entries:
+                continue
+            lines = [title]
+            for code, hint, labels in entries[:10]:
+                lines.append(f"▸ {code}" + (f" — {hint}" if hint else ""))
+                lines.append("   " + " • ".join(labels))
+            sections.append("\n".join(lines))
         lines = ["🤖 Muse đang làm:"]
-        if not (writing or drafted or reviewing):
+        if not sections:
             lines.append(
                 "Hiện không có đầu việc nào đang chờ — mọi thứ đã xong. 🎉")
-        if writing:
-            lines.append("✍️ Đang chờ Muse viết nháp: "
-                         + ", ".join(writing[:10]))
-        if drafted:
-            lines.append("📄 Đã có nháp, chờ gửi duyệt: "
-                         + ", ".join(drafted[:10]))
-        if reviewing:
-            lines.append("⏳ Đang chờ duyệt: " + ", ".join(reviewing[:10]))
+        else:
+            lines.append("")
+            lines.append(("\n\n" + "─" * 12 + "\n\n").join(sections))
         self._send(chat_id, "\n".join(lines))
 
     def _cmd_menu(self, user, tg_user, chat_id):
