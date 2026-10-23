@@ -430,7 +430,7 @@ class BotTestCase(unittest.TestCase):
         card = cards[0]
         self.assertIn(f"👤 User{CONTRIBUTOR}", card)
         self.assertRegex(card, r"\d{2}:\d{2} \d{2}/\d{2}/\d{4}")
-        self.assertIn("🎯 Website • Facebook • Instagram", card)
+        self.assertIn("🎯 🌐 Website • 📘 Facebook • 📸 Instagram", card)
         # Default destinations stored on the task itself.
         self.assertEqual(
             json.loads(task["destinations"]),
@@ -458,8 +458,8 @@ class BotTestCase(unittest.TestCase):
         edit = self.api.edits[-1]
         rows = edit["reply_markup"]["inline_keyboard"]
         labels = [b["text"] for row in rows for b in row]
-        self.assertIn("❌ Facebook", labels)
-        self.assertIn("✅ Website", labels)
+        self.assertIn("❌ 📘 Facebook", labels)
+        self.assertIn("✅ 🌐 Website", labels)
         self.assertEqual(
             [b["text"] for b in rows[-1]],
             ["🚀 Chốt! Gửi Muse", "🗑 Thu hồi việc"])

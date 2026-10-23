@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Icon cho từng kênh + nút hủy về thùng rác
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo yêu cầu của chủ dự án: các nút chọn kênh có icon riêng — **🌐 Website, 📘 Facebook, 📸 Instagram** (áp dụng ở Bước 3 wizard, khối chọn kênh trên thẻ việc và dòng 🎯 nơi đăng); nút hủy ở Bước 3 quay về icon **thùng rác** ("🗑 Hủy việc") theo đúng chỉ đạo "hủy việc vẫn là icon thùng rác đỏ" (trên điện thoại của chủ dự án emoji thùng rác hiển thị tông đỏ).
+- **Trạng thái:** Đã xong. Kiểm thử 91/91 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Nút hủy ở Bước 3: "❌ Hủy việc"
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo yêu cầu của chủ dự án, nút hủy ở Bước 3 wizard đổi từ "🗑 Huỷ" thành **"❌ Hủy việc"** (icon đỏ). Hàng cuối Bước 3 nay là [🚀 Chốt! Gửi Muse] [❌ Hủy việc].

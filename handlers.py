@@ -36,9 +36,9 @@ STATUS_LABELS = {
 
 #: Publish destinations, in display order: (key, label).
 DESTINATIONS = (
-    ("website", "Website"),
-    ("facebook", "Facebook"),
-    ("instagram", "Instagram"),
+    ("website", "🌐 Website"),
+    ("facebook", "📘 Facebook"),
+    ("instagram", "📸 Instagram"),
 )
 DESTINATION_KEYS = tuple(key for key, _label in DESTINATIONS)
 DESTINATION_LABELS = dict(DESTINATIONS)
@@ -1072,7 +1072,7 @@ class BotApp:
         rows.append([_btn("✏️ Sửa nội dung gợi ý", "wiz_hint")])
         rows.append([
             _btn("🚀 Chốt! Gửi Muse", "wiz_create"),
-            _btn("❌ Hủy việc", "wiz_cancel"),
+            _btn("🗑 Hủy việc", "wiz_cancel"),
         ])
         return _keyboard(rows)
 
