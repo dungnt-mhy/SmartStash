@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Bố cục bàn phím chính: bỏ nút Người dùng, hàng cuối là [Muse đang làm | Ẩn thao tác]
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo yêu cầu trực tiếp của chủ dự án: bàn phím chính **bỏ hẳn nút "👥 Người dùng"** (quản lý người dùng vẫn còn qua lệnh /danhsach và các luồng cấp quyền); hàng cuối gộp thành một hàng duy nhất: **"🤖 Muse đang làm" bên trái, "🙈 Ẩn thao tác" bên phải** (nút ẩn đổi tên từ "Ẩn bàn phím" thành "Ẩn thao tác"). Áp dụng cho mọi vai trò.
+- **Trạng thái:** Đã xong. Kiểm thử 85/85 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Thông báo "Muse đang làm": gom theo từng việc, có vạch ngăn
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án chê danh sách trạng thái nối dài bằng dấu phẩy khó đọc ("CV-0002 · Website, CV-0002 · Facebook, …"). Nay `_cmd_claude_status` trình bày **theo từng việc**: mỗi việc một khối "▸ MÃ VIỆC — gợi ý" và dòng kênh nằm dưới ("Website • Facebook • Instagram"); các mục (chờ viết nháp / đã có nháp / chờ duyệt) cách nhau bằng vạch "────────────". Đã kiểm chứng trên dữ liệu test thật của chủ dự án (CV-0001, CV-0002 sau reset).

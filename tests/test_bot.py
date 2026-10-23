@@ -808,7 +808,7 @@ class BotTestCase(unittest.TestCase):
     def test_hide_and_show_main_keyboard(self):
         self.api.sent.clear()
         self.app.handle_update(
-            message_update(EDITOR, text=handlers.BTN_HIDE_KB))
+            message_update(EDITOR, text=handlers.BTN_HIDE_OPS))
         markups = [m.get("reply_markup") for m in self.api.sent
                    if m["chat_id"] == EDITOR]
         self.assertIn({"remove_keyboard": True}, markups)
@@ -821,7 +821,7 @@ class BotTestCase(unittest.TestCase):
         labels = [btn["text"] for row in keyboards[0]["keyboard"]
                   for btn in row]
         self.assertIn(handlers.BTN_NEW_TASK, labels)
-        self.assertIn(handlers.BTN_HIDE_KB, labels)
+        self.assertIn(handlers.BTN_HIDE_OPS, labels)
         commands = [c["command"]
                     for c in handlers.commands_for_role(roles.ROLE_EDITOR)]
         self.assertIn("menu", commands)
@@ -1029,7 +1029,11 @@ class Phase1TestCase(BotTestCase):
         labels = self.keyboard_labels_of(ADMIN)
         self.assertIn("⏳ Chờ duyệt", labels)
         self.assertIn("📊 Thống kê", labels)
-        self.assertIn("👥 Người dùng", labels)
+        # Owner's layout: no Users button; the last row pairs Muse's
+        # status (left) with the hide-controls button (right).
+        self.assertNotIn("👥 Người dùng", labels)
+        self.assertEqual(labels[-2:],
+                         [handlers.BTN_CLAUDE, handlers.BTN_HIDE_OPS])
 
     def test_menu_commands_follow_role(self):
         self.app.sync_all_commands()

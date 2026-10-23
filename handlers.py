@@ -112,32 +112,28 @@ BTN_STATS = "📊 Thống kê"
 BTN_USERS = "👥 Người dùng"
 BTN_HELP = "❓ Trợ giúp"
 BTN_CLAUDE = "🤖 Muse đang làm"
-BTN_HIDE_KB = "🙈 Ẩn bàn phím"
+BTN_HIDE_OPS = "🙈 Ẩn thao tác"
 
 
 def main_keyboard(user):
     """The persistent reply keyboard for a user's role (the bot's home
-    screen). Reviewers get the review queue and statistics; Admin and
-    Phó Admin also get user management. Pending users only get help."""
-    help_btn = {"text": BTN_CLAUDE}
-    hide_row = [{"text": BTN_HIDE_KB}]
+    screen). Reviewers get the review queue and statistics. The last
+    row pairs Muse's status (left) with the hide-controls button
+    (right); user management lives on the /danhsach command, not a
+    keyboard button (owner's layout, 2026-10-23)."""
+    last_row = [{"text": BTN_CLAUDE}, {"text": BTN_HIDE_OPS}]
     if user is None or user["role"] is None:
-        rows = [[help_btn], hide_row]
+        rows = [last_row]
     elif roles.can_review(user["role"]):
         rows = [
             [{"text": BTN_NEW_TASK}, {"text": BTN_PENDING}],
             [{"text": BTN_ALL_TASKS}, {"text": BTN_STATS}],
+            last_row,
         ]
-        if user["role"] in (roles.ROLE_ADMIN, roles.ROLE_DEPUTY):
-            rows.append([{"text": BTN_USERS}, help_btn])
-        else:
-            rows.append([help_btn])
-        rows.append(hide_row)
     else:
         rows = [
             [{"text": BTN_NEW_TASK}, {"text": BTN_MY_TASKS}],
-            [help_btn],
-            hide_row,
+            last_row,
         ]
     return {
         "keyboard": rows,
@@ -725,13 +721,13 @@ class BotApp:
         self._send_main(
             chat_id,
             "⌨️ Đây là bàn phím chính của bạn. Khi muốn ẩn, bấm "
-            "🙈 Ẩn bàn phím ở hàng dưới cùng.",
+            "🙈 Ẩn thao tác ở hàng dưới cùng.",
             user)
 
     def _hide_keyboard(self, chat_id):
         self._send(
             chat_id,
-            "Đã ẩn bàn phím. Khi cần hiện lại, gõ /menu.",
+            "Đã ẩn các nút thao tác. Khi cần hiện lại, gõ /menu.",
             reply_markup={"remove_keyboard": True})
 
     def _cmd_start(self, user, tg_user, chat_id):
@@ -937,7 +933,7 @@ class BotApp:
             self._cmd_help(user, tg_user, chat_id)
         elif text == BTN_CLAUDE:
             self._cmd_claude_status(user, tg_user, chat_id)
-        elif text == BTN_HIDE_KB:
+        elif text == BTN_HIDE_OPS:
             self._hide_keyboard(chat_id)
         else:
             return False
