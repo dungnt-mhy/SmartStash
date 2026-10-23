@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thu hồi Facebook = xoá bài thật
+- **Hạng mục:** Tính năng mới
+- **Thay đổi:** Trước đây nút Thu hồi chỉ đổi trạng thái trong hệ thống, bài trên Facebook vẫn còn nguyên. Chủ dự án đã chọn nâng cấp: với kênh Facebook, bấm Thu hồi → hộp xác nhận nói rõ "Bài sẽ bị XOÁ THẬT trên Facebook" → xác nhận chỉ ghi lệnh `retract_requested` (không lật trạng thái oan như lỗi đăng ảo trước đây, có chặn bấm trùng khi lệnh đang xử lý). Muse mở link bài bằng trình duyệt, xoá thật, kiểm chứng bài đã biến mất rồi hoàn tất bằng lệnh mới `botctl set-output-retracted`: lúc đó thẻ mới chuyển "Đã thu hồi" (link ghi "Bài đã xoá") và Telegram nhận đúng 1 thông báo. Kênh khác giữ cách thu hồi trong hệ thống như cũ.
+- **Trạng thái:** Đã xong. Kiểm thử 120/120 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Đặt lịch đăng + cảnh báo bài đăng sát nhau dưới 1 giờ
 - **Hạng mục:** Tính năng mới
 - **Thay đổi:** Chủ dự án yêu cầu thêm chức năng đặt lịch đăng kèm cảnh báo khi các bài đăng quá sát nhau (ví dụ 1 giờ). Đã triển khai: nút **🕐 Đặt lịch đăng** trên thẻ kênh đã duyệt chờ đăng (việc của Admin bấm ngay từ lúc có nháp, tự qua duyệt như nút Đăng). Facebook vẫn chốt nơi đăng (Trang cá nhân / Fanpage, có nút Hủy) trước khi nhập giờ; giờ nhập dạng `16:30` (hôm nay, qua giờ tính ngày mai) hoặc `24/10 16:30`, giờ Việt Nam. Thẻ hiện thêm dòng "🕐 Lịch đăng: ..." và có nút Đổi lịch / ❌ Hủy lịch; bấm Đăng ngay sẽ hủy lịch. **Cảnh báo:** nếu kênh đó đã có bài đặt cách chưa tới 1 giờ, tin xác nhận kèm dòng "⚠️ Lưu ý ... đăng sát nhau dễ loãng tương tác" (chỉ cảnh báo, vẫn đặt lịch). Đến giờ, bot tự ghi lệnh đăng kèm nơi đăng đã chốt, báo "⏰ Đến lịch đăng ..." về Telegram và Muse đăng thật như lệnh đăng thường.

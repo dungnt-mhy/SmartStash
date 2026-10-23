@@ -1976,7 +1976,10 @@ class BotApp:
             lines.append(
                 f"🕐 Lịch đăng: {_format_created(output['scheduled_at'])}")
         if output["public_url"]:
-            lines.append(f"🔗 Đã đăng: {output['public_url']}")
+            if output["status"] == STATUS_RETRACTED:
+                lines.append(f"🔗 Bài đã xoá: {output['public_url']}")
+            else:
+                lines.append(f"🔗 Đã đăng: {output['public_url']}")
         if output["status"] == STATUS_REJECTED and output["reject_reason"]:
             lines.append(f"✏️ Yêu cầu chỉnh sửa: {output['reject_reason']}")
         return "\n".join(lines)
@@ -2175,7 +2178,7 @@ class BotApp:
                 callback_id, user, chat_id, output, task)
         elif action == "out_retract_confirm":
             self._output_retract_confirm(
-                callback_id, user, chat_id, output, task)
+                callback_id, user, chat_id, output, task, message_id)
         else:
             self._answer(callback_id, "Thao tác không hợp lệ.")
 
@@ -2771,14 +2774,19 @@ class BotApp:
             _btn("↩️ Xác nhận thu hồi",
                  f"out_retract_confirm:{output['id']}"),
         ]])
-        self._send(
-            chat_id,
-            f"Thu hồi thẻ kênh {label} đã đăng của việc {task['code']}? "
-            "Bấm Xác nhận để thu hồi.",
-            reply_markup=markup,
-        )
+        if output["channel"] == "facebook":
+            text = (
+                f"Thu hồi thẻ kênh {label} đã đăng của việc "
+                f"{task['code']}? Bài sẽ bị XOÁ THẬT trên Facebook. "
+                "Bấm Xác nhận để xoá bài và thu hồi.")
+        else:
+            text = (
+                f"Thu hồi thẻ kênh {label} đã đăng của việc "
+                f"{task['code']}? Bấm Xác nhận để thu hồi.")
+        self._send(chat_id, text, reply_markup=markup)
 
-    def _output_retract_confirm(self, callback_id, user, chat_id, output, task):
+    def _output_retract_confirm(self, callback_id, user, chat_id,
+                                output, task, message_id=None):
         if not roles.can_publish(user):
             self.store.audit(
                 user["telegram_id"], "denied_output_retract_attempt",
@@ -2792,6 +2800,36 @@ class BotApp:
             self._answer(callback_id,
                          "Thẻ kênh này không còn ở trạng thái đã đăng.",
                          show_alert=True)
+            return
+        if output["channel"] == "facebook" and output["public_url"]:
+            # Real deletion (owner's upgrade): confirming only
+            # places the order — Muse deletes the post in the
+            # browser and completes via botctl set-output-retracted.
+            # Flipping to RETRACTED here would claim a deletion that
+            # has not happened — the same hollow-state bug the
+            # publish flow once had.
+            pending = self.store.latest_audit_id(
+                output["id"], "retract_requested")
+            done = self.store.latest_audit_id(
+                output["id"], "retract_output")
+            if pending is not None and (done is None or pending > done):
+                self._answer(callback_id,
+                             "Lệnh thu hồi đang được xử lý rồi.")
+                return
+            self.store.audit(
+                user["telegram_id"], "retract_requested", "output",
+                output["id"],
+                detail=f"task={task['code']} channel=facebook "
+                       f"public_url={output['public_url']}")
+            self._answer(
+                callback_id,
+                "⏳ Đã nhận lệnh thu hồi — Muse sẽ xoá bài thật "
+                "trên Facebook.")
+            self._edit_card(
+                chat_id, message_id,
+                f"⏳ Đã nhận lệnh thu hồi thẻ kênh Facebook của việc "
+                f"{task['code']} — Muse đang xoá bài thật trên "
+                "Facebook, xong sẽ báo lại ngay.")
             return
         self.store.set_output_status(output["id"], STATUS_RETRACTED)
         self.store.audit(user["telegram_id"], "retract_output", "output",

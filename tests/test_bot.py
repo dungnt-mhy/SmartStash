@@ -671,6 +671,49 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(
             len(self.store.audit_entries("schedule_cancelled")), 1)
 
+    def test_facebook_retract_requests_real_deletion(self):
+        # Owner's upgrade: confirming a Facebook retract only
+        # places the deletion order — the status flips when Muse
+        # completes it after really deleting the post.
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_public_url(
+            fb["id"], "https://facebook.com/post/1")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_retract:{fb['id']}"))
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_retract_confirm:{fb['id']}"))
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "PUBLISHED")
+        self.assertEqual(
+            len(self.store.audit_entries("retract_requested")), 1)
+        self.assertEqual(
+            len(self.store.audit_entries("retract_output")), 0)
+        # A second confirm while pending files no duplicate order.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_retract_confirm:{fb['id']}"))
+        self.assertEqual(
+            len(self.store.audit_entries("retract_requested")), 1)
+
+    def test_botctl_set_output_retracted_completes(self):
+        import types
+
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_public_url(
+            fb["id"], "https://facebook.com/post/1")
+        args = types.SimpleNamespace(
+            task_code=task["code"], channel="facebook", no_notify=True)
+        rc = botctl.cmd_set_output_retracted(self.store, args)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "RETRACTED")
+        self.assertEqual(
+            len(self.store.audit_entries("retract_output")), 1)
+        # Not repeatable once retracted.
+        rc = botctl.cmd_set_output_retracted(self.store, args)
+        self.assertEqual(rc, 1)
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

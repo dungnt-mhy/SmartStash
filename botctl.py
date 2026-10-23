@@ -586,6 +586,38 @@ def cmd_set_output_published(store, args) -> int:
     return 0
 
 
+def cmd_set_output_retracted(store, args) -> int:
+    """Complete a Facebook retract order: the post has REALLY been
+    deleted in the browser, so the output may now be marked
+    RETRACTED and everyone notified — one success message with the
+    updated card, mirroring set-output-published."""
+    task, output = _get_task_and_output(store, args.task_code, args.channel)
+    if output is None:
+        return 1
+    if output["status"] != "PUBLISHED":
+        print(f"Lỗi: đầu ra {args.channel} của {args.task_code} chưa ở "
+              "trạng thái PUBLISHED.", file=sys.stderr)
+        return 1
+    store.set_output_status(output["id"], "RETRACTED")
+    store.audit(None, "retract_output", "output", output["id"],
+                detail=f"task={args.task_code} channel={args.channel} "
+                       "real_delete=1")
+    store.sync_task_status_from_outputs(args.task_code)
+    client = build_client_or_warn(args.no_notify)
+    output = store.get_output(output["id"])
+    from storage import CHANNELS
+    label = CHANNELS.get(output["channel"], {}).get(
+        "label", output["channel"])
+    _notify_output(store, client, task, output,
+                   _recipients_for_published(store, task),
+                   prefix=f"↩️ Đã thu hồi — bài đã được xoá thật trên "
+                          f"Facebook, thẻ kênh {label} của việc "
+                          f"{args.task_code}:")
+    print(f"Đã đánh dấu đầu ra {args.channel} của {args.task_code} "
+          "là RETRACTED (đã xoá bài thật)")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Điều khiển bot giao việc (dùng nội bộ bởi Muse)")
@@ -635,6 +667,14 @@ def main(argv=None) -> int:
     p_opub.add_argument("public_url")
     p_opub.add_argument("--no-notify", action="store_true")
 
+    p_oret = sub.add_parser(
+        "set-output-retracted",
+        help="Hoàn tất lệnh thu hồi Facebook: bài đã xoá thật, "
+             "đánh dấu đầu ra RETRACTED và báo về Telegram")
+    p_oret.add_argument("task_code")
+    p_oret.add_argument("channel")
+    p_oret.add_argument("--no-notify", action="store_true")
+
     args = parser.parse_args(argv)
     store = Store(Path(args.data_dir) / "bot.db")
     try:
@@ -650,6 +690,8 @@ def main(argv=None) -> int:
             return cmd_attach_output_draft(store, args)
         if args.command == "set-output-published":
             return cmd_set_output_published(store, args)
+        if args.command == "set-output-retracted":
+            return cmd_set_output_retracted(store, args)
     finally:
         store.close()
     return 2

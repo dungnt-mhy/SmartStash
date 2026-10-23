@@ -489,6 +489,17 @@ class Store:
                 (draft_ref, utcnow_iso(), output_id),
             )
 
+    def latest_audit_id(self, output_id: int, action: str):
+        """Newest audit id for one action on one output, or None —
+        used to tell whether an order (e.g. retract) is pending."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(id) AS m FROM audit_log WHERE "
+                "target_type = 'output' AND target_id = ? AND action = ?",
+                (output_id, action),
+            ).fetchone()
+        return row["m"] if row else None
+
     def set_output_schedule(self, output_id: int, scheduled_at,
                             publish_target=None) -> None:
         """Set (or clear, with None) an output's scheduled publish
