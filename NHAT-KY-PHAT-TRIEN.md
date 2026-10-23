@@ -20,6 +20,17 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thẻ việc đổi sang mô hình chốt bằng OK: chọn kênh theo giai đoạn, đóng băng thẻ, nút trạng thái "Muse đang làm"
+- **Hạng mục:** Tính năng / Trải nghiệm người dùng
+- **Thay đổi:** Theo mô tả trực tiếp của chủ dự án khi test bản reset (kèm ảnh chụp khối nút trên thẻ việc):
+  - "✏️ Chỉnh sửa" → **"✏️ Chỉnh sửa gợi ý"** cho rõ nghĩa.
+  - Mục "📋 Thẻ các kênh" → **"🎯 Chọn kênh đăng bài"** (nút tiêu đề của khối chọn kênh; chạm vào hiện hướng dẫn). Người không có quyền đổi kênh vẫn thấy nút Thẻ các kênh như cũ.
+  - Ba nút kênh đổi cơ chế: mặc định chọn tất cả (✅); chạm để bỏ chọn → hiện **❌** (trước là ⬜). Các chạm chỉ là **chọn tạm trên thẻ** (lưu ở trạng thái chờ của người dùng, thẻ tự sửa tại chỗ) — **chưa áp dụng ngay** như trước, nên không còn nguy cơ chạm nhầm làm huỷ đầu ra/bản nháp.
+  - Thêm nút **"✅ OK" ngay cạnh "🗑 Thu hồi việc"**: bấm OK mới chốt — đồng bộ nơi đăng + các đầu ra kênh, gửi lại thẻ kênh, và bot báo: *"🎯 Đã chốt kênh đăng bài cho việc… ✅ Đã gửi đến Muse. Đợi Muse làm xong — khi xong, Muse sẽ thông báo và gửi kết quả công việc (thẻ kênh kèm bản nháp) ngay tại đây."* (đúng nội dung chủ dự án yêu cầu). Việc sau khi chốt nằm trong hàng đợi Muse theo dõi để viết nháp.
+  - Sau khi OK, **thẻ việc bị đóng băng** (như thanh hành động của Facebook): toàn bộ nút trên chính thẻ đó bị gỡ, thẻ thêm dòng "🔒 Đã chốt kênh đăng — Muse đang làm bài cho các kênh đã chọn…". Luồng tiếp tục trên các thẻ kênh mới gửi phía dưới; thẻ việc gửi mới về sau vẫn thao tác bình thường.
+  - Bàn phím dưới khung chat: nút **"❓ Trợ giúp" được thay bằng "🤖 Muse đang làm"** — chạm vào bot báo tình hình hàng đợi thật từ dữ liệu: kênh nào đang chờ Muse viết nháp, kênh nào đã có nháp chờ gửi duyệt, thẻ nào đang chờ duyệt. Lệnh /help vẫn dùng như cũ.
+- **Trạng thái:** Đã xong. Kiểm thử 85/85 đạt (viết lại 3 test chọn kênh theo mô hình chọn-tạm/OK, thêm kiểm chứng đóng băng thẻ sau OK và nút trạng thái Muse). Bot đã khởi động lại bản mới.
+
 ### 2026-10-23 — Ba chỉnh sửa trải nghiệm Telegram: tắt hộp xem trước link, nút Trả lại kèm yêu cầu sửa, bàn phím chính ẩn/hiện được
 - **Hạng mục:** Tính năng / Trải nghiệm người dùng
 - **Thay đổi:** Theo 3 yêu cầu trực tiếp của chủ dự án (kèm ảnh chụp thực tế):

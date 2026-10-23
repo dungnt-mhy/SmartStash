@@ -438,53 +438,73 @@ class BotTestCase(unittest.TestCase):
             ["website", "facebook", "instagram"],
         )
 
-    def test_destination_toggle_remove_readd_and_last_refusal(self):
+    def test_destination_toggle_stages_then_ok_commits(self):
+        # Owner's model: taps only STAGE the selection on the card
+        # (✅/❌ marks); OK commits it and sends the work order to
+        # Muse; the tapped card then freezes (buttons stripped).
         task = self.create_contributor_task()
         code = task["code"]
-        # Remove Facebook.
-        self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_dest:{code}:facebook"))
-        task = self.store.get_task(code)
-        self.assertEqual(json.loads(task["destinations"]),
-                         ["website", "instagram"])
-        # A refreshed card was sent showing the new selection + toggle state.
-        cards = [t for t in self.api.texts_to(CONTRIBUTOR) if code in t]
-        self.assertIn("Nơi đăng: Website • Instagram", cards[-1])
-        self.assertIsNotNone(
-            self.api.find_callback("task_dest:", suffix=f"{code}:facebook"))
-        buttons = [
-            b["text"]
-            for m in self.api.sent if m["chat_id"] == CONTRIBUTOR
-            for row in (m.get("reply_markup") or {}).get("inline_keyboard", [])
-            for b in row
-        ]
-        self.assertIn("⬜ Facebook", buttons)
-        self.assertIn("✅ Website", buttons)
-        # Re-add Facebook.
+        # Stage Facebook off: stored destinations unchanged yet.
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{code}:facebook"))
         self.assertEqual(
             json.loads(self.store.get_task(code)["destinations"]),
-            ["website", "facebook", "instagram"],
-        )
-        # Remove two, leaving only Facebook.
+            ["website", "facebook", "instagram"])
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(state["state"], "task_dest_pending")
+        self.assertEqual(state["payload"]["chosen"],
+                         ["website", "instagram"])
+        # The tapped card was edited in place: ❌ Facebook, ✅ Website.
+        edit = self.api.edits[-1]
+        labels = [b["text"]
+                  for row in edit["reply_markup"]["inline_keyboard"]
+                  for b in row]
+        self.assertIn("❌ Facebook", labels)
+        self.assertIn("✅ Website", labels)
+        # OK commits and notifies that the order went to Muse.
+        self.api.sent.clear()
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_ok:{code}"))
+        self.assertEqual(
+            json.loads(self.store.get_task(code)["destinations"]),
+            ["website", "instagram"])
+        confirmations = self.api.texts_to(CONTRIBUTOR)
+        self.assertTrue(any(
+            "Đã chốt kênh đăng bài" in t and "Đã gửi đến Muse" in t
+            and "gửi kết quả công việc" in t for t in confirmations))
+        # The OK card froze: an edit stripped its buttons + lock line.
+        frozen = [e for e in self.api.edits
+                  if e["reply_markup"] == {"inline_keyboard": []}
+                  and "đóng băng" in (e["text"] or "")]
+        self.assertTrue(frozen)
+        # Stage Facebook back on, OK; then stage two off, OK.
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest:{code}:facebook"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_ok:{code}"))
+        self.assertEqual(
+            json.loads(self.store.get_task(code)["destinations"]),
+            ["website", "facebook", "instagram"])
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{code}:website"))
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{code}:instagram"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_ok:{code}"))
         self.assertEqual(
-            json.loads(self.store.get_task(code)["destinations"]), ["facebook"])
-        # Removing the last one is refused.
+            json.loads(self.store.get_task(code)["destinations"]),
+            ["facebook"])
+        # Staging off the last remaining channel is refused.
         self.api.answered.clear()
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{code}:facebook"))
-        self.assertEqual(
-            json.loads(self.store.get_task(code)["destinations"]), ["facebook"])
         self.assertTrue(self.api.answered[-1]["show_alert"])
         self.assertIn("ít nhất một nơi đăng", self.api.answered[-1]["text"])
-        # Successful toggles were audited (remove + re-add + 2 removes;
-        # the refused removal of the last destination is not audited).
-        self.assertEqual(len(self.store.audit_entries("set_destinations")), 4)
+        # set_destinations audited once per successful OK (3 times).
+        self.assertEqual(
+            len(self.store.audit_entries("set_destinations")), 3)
+        self.assertEqual(
+            len(self.store.audit_entries("destinations_confirmed")), 3)
 
     def test_destination_toggle_permission_by_status(self):
         task = self.create_contributor_task()
@@ -501,8 +521,15 @@ class BotTestCase(unittest.TestCase):
             json.loads(self.store.get_task(code)["destinations"]),
             ["website", "facebook", "instagram"],
         )
+        # Editor stages the change (nothing stored yet), then OKs it.
         self.app.handle_update(
             callback_update(EDITOR, f"task_dest:{code}:facebook"))
+        self.assertEqual(
+            json.loads(self.store.get_task(code)["destinations"]),
+            ["website", "facebook", "instagram"],
+        )
+        self.app.handle_update(
+            callback_update(EDITOR, f"task_dest_ok:{code}"))
         self.assertEqual(
             json.loads(self.store.get_task(code)["destinations"]),
             ["website", "instagram"],
@@ -626,17 +653,21 @@ class BotTestCase(unittest.TestCase):
     def test_destination_toggle_syncs_outputs(self):
         task = self.create_contributor_task()
         code = task["code"]
-        # Toggle Facebook off: its DRAFT output is cancelled, others stay.
+        # Toggle Facebook off + OK: its DRAFT output is cancelled.
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{code}:facebook"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_ok:{code}"))
         outputs = self.outputs_by_channel(code)
         self.assertEqual(outputs["facebook"]["status"], "CANCELLED")
         self.assertEqual(outputs["website"]["status"], "DRAFT")
         self.assertEqual(outputs["instagram"]["status"], "DRAFT")
-        # Toggle Facebook back on: the output is recreated as DRAFT
-        # (same row revived).
+        # Toggle Facebook back on + OK: the output is recreated as
+        # DRAFT (same row revived).
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{code}:facebook"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_ok:{code}"))
         revived = self.store.get_output_by_channel(code, "facebook")
         self.assertEqual(revived["status"], "DRAFT")
         self.assertEqual(revived["id"], outputs["facebook"]["id"])
@@ -1122,6 +1153,22 @@ class Phase1TestCase(BotTestCase):
         labels = self.keyboard_labels_of(CONTRIBUTOR)
         self.assertIn("📋 Việc của tôi", labels)
 
+    def test_claude_status_button_reports_queue(self):
+        task = self.create_contributor_task()
+        self.api.sent.clear()
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text=handlers.BTN_CLAUDE))
+        texts = self.api.texts_to(CONTRIBUTOR)
+        self.assertTrue(any(
+            "Muse đang làm" in t and task["code"] in t
+            and "viết nháp" in t for t in texts))
+        # The bottom menu now carries Muse's status instead of Help.
+        markup = handlers.main_keyboard(
+            self.store.get_user(CONTRIBUTOR))
+        labels = [b["text"] for row in markup["keyboard"] for b in row]
+        self.assertIn(handlers.BTN_CLAUDE, labels)
+        self.assertNotIn(handlers.BTN_HELP, labels)
+
     def test_select_all_destinations_wizard_and_card(self):
         # Wizard: turn one channel off, then "Chọn tất cả" restores it.
         self.app.handle_update(
@@ -1150,16 +1197,23 @@ class Phase1TestCase(BotTestCase):
             ["website", "facebook", "instagram"])
         self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
         task = self.store.list_tasks()[0]
-        # Task card: remove a channel via toggle, then select all again.
+        # Task card: stage a channel off, select all again, then OK.
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{task['code']}:facebook"))
         task = self.store.get_task(task["code"])
         self.assertEqual(
-            json.loads(task["destinations"]), ["website", "instagram"])
-        self.assertIn(
-            f"task_dest_all:{task['code']}", self.api.all_callback_data())
+            json.loads(task["destinations"]),
+            ["website", "facebook", "instagram"])
+        edited = self.api.edits[-1]["reply_markup"] or {}
+        edited_data = [
+            b["callback_data"]
+            for row in edited.get("inline_keyboard", []) for b in row
+        ]
+        self.assertIn(f"task_dest_all:{task['code']}", edited_data)
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest_all:{task['code']}"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_ok:{task['code']}"))
         task = self.store.get_task(task["code"])
         self.assertEqual(
             json.loads(task["destinations"]),

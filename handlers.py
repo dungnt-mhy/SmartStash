@@ -94,9 +94,10 @@ HELP_TEXT = (
     "Cách nhanh: dùng các nút ở bàn phím dưới khung chat. Cũng có thể "
     "gửi thẳng ảnh/tài liệu (kèm chú thích làm gợi ý), rồi nhắn một "
     "tin nhắn văn bản để chốt tạo việc.\n"
-    "Trên thẻ việc: bấm ✏️ Chỉnh sửa để sửa gợi ý, bấm các nút ✅/⬜ để "
-    "chọn nơi đăng, bấm 🗑 Thu hồi việc để hủy việc chưa đăng (bài đã "
-    "đăng thì dùng nút ↩️ Thu hồi bài đã đăng)."
+    "Trên thẻ việc: bấm ✏️ Chỉnh sửa gợi ý để sửa gợi ý; ở mục 🎯 "
+    "Chọn kênh đăng bài, chạm từng kênh để chọn (✅) hoặc bỏ chọn (❌) "
+    "rồi bấm OK để chốt và gửi lệnh cho Muse viết bài; bấm 🗑 Thu "
+    "hồi việc để hủy việc chưa đăng."
 )
 
 #: Main reply-keyboard button labels. A tap on a reply-keyboard button
@@ -110,6 +111,7 @@ BTN_PENDING = "⏳ Chờ duyệt"
 BTN_STATS = "📊 Thống kê"
 BTN_USERS = "👥 Người dùng"
 BTN_HELP = "❓ Trợ giúp"
+BTN_CLAUDE = "🤖 Muse đang làm"
 BTN_HIDE_KB = "🙈 Ẩn bàn phím"
 
 
@@ -117,7 +119,7 @@ def main_keyboard(user):
     """The persistent reply keyboard for a user's role (the bot's home
     screen). Reviewers get the review queue and statistics; Admin and
     Phó Admin also get user management. Pending users only get help."""
-    help_btn = {"text": BTN_HELP}
+    help_btn = {"text": BTN_CLAUDE}
     hide_row = [{"text": BTN_HIDE_KB}]
     if user is None or user["role"] is None:
         rows = [[help_btn], hide_row]
@@ -575,29 +577,56 @@ class BotApp:
         is_creator = viewer["telegram_id"] == task["creator_id"]
         is_admin = viewer["role"] == roles.ROLE_ADMIN
         if is_creator and status in (STATUS_DRAFT, STATUS_REJECTED):
-            rows.append([_btn("✏️ Chỉnh sửa", f"task_edit:{code}")])
+            rows.append([_btn("✏️ Chỉnh sửa gợi ý", f"task_edit:{code}")])
         live_outputs = [
             o for o in self.store.list_outputs(code)
             if o["status"] != STATUS_CANCELLED
         ]
-        if live_outputs:
-            rows.append([_btn("📋 Thẻ các kênh", f"task_outputs:{code}")])
-        if _can_toggle_destinations(viewer, task):
-            chosen = task_destinations(task)
+        can_toggle = _can_toggle_destinations(viewer, task)
+        if can_toggle:
+            # The channel picker is a staged selection (owner's model):
+            # taps flip ✅/❌ on the card only; the OK button beside
+            # Thu hồi việc commits the choice and sends it to Muse.
+            rows.append([_btn("🎯 Chọn kênh đăng bài",
+                              f"task_dest_head:{code}")])
+            pending = self._dest_pending(viewer, task)
+            chosen = pending if pending is not None \
+                else task_destinations(task)
             rows.append([
                 _btn(
-                    f"{'✅' if key in chosen else '⬜'} {label}",
+                    f"{'✅' if key in chosen else '❌'} {label}",
                     f"task_dest:{code}:{key}",
                 )
                 for key, label in DESTINATIONS
             ])
             if len(chosen) < len(DESTINATIONS):
                 rows.append([_btn("✅ Chọn tất cả", f"task_dest_all:{code}")])
+        elif live_outputs:
+            rows.append([_btn("📋 Thẻ các kênh", f"task_outputs:{code}")])
+        bottom = []
         if status in (STATUS_DRAFT, STATUS_PENDING, STATUS_REJECTED) and (
             is_creator or is_admin
         ):
-            rows.append([_btn("🗑 Thu hồi việc", f"task_cancel:{code}")])
+            bottom.append(_btn("🗑 Thu hồi việc", f"task_cancel:{code}"))
+        if can_toggle:
+            bottom.append(_btn("✅ OK", f"task_dest_ok:{code}"))
+        if bottom:
+            rows.append(bottom)
         return _keyboard(rows)
+
+    def _dest_pending(self, user, task):
+        """The viewer's staged (not yet OK-confirmed) channel selection
+        for this task, or None. Toggles only stage; OK commits."""
+        if user is None or task is None:
+            return None
+        state = self.store.get_user_state(user["telegram_id"])
+        if state and state["state"] == "task_dest_pending":
+            payload = state["payload"] or {}
+            if payload.get("code") == task["code"]:
+                chosen = payload.get("chosen")
+                if isinstance(chosen, list):
+                    return [k for k in DESTINATION_KEYS if k in chosen]
+        return None
 
     def _notify_reviewers(self, task, exclude_id=None):
         for reviewer in self.store.reviewers():
@@ -639,6 +668,41 @@ class BotApp:
 
     def _cmd_help(self, user, tg_user, chat_id):
         self._send(chat_id, HELP_TEXT)
+
+    def _cmd_claude_status(self, user, tg_user, chat_id):
+        """What Muse is currently working on, from live bot data:
+        channels still waiting for a draft, drafts waiting to be
+        submitted, and cards waiting for review."""
+        writing, drafted, reviewing = [], [], []
+        for task in self.store.list_tasks():
+            if task["status"] in (STATUS_CANCELLED, STATUS_RETRACTED,
+                                  STATUS_PUBLISHED):
+                continue
+            for output in self.store.list_outputs(task["code"]):
+                if output["status"] == STATUS_CANCELLED:
+                    continue
+                label = CHANNELS.get(output["channel"], {}).get(
+                    "label", output["channel"])
+                item = f"{task['code']} · {label}"
+                if output["status"] == STATUS_PENDING:
+                    reviewing.append(item)
+                elif not output["draft_ref"]:
+                    writing.append(item)
+                elif output["status"] == STATUS_DRAFT:
+                    drafted.append(item)
+        lines = ["🤖 Muse đang làm:"]
+        if not (writing or drafted or reviewing):
+            lines.append(
+                "Hiện không có đầu việc nào đang chờ — mọi thứ đã xong. 🎉")
+        if writing:
+            lines.append("✍️ Đang chờ Muse viết nháp: "
+                         + ", ".join(writing[:10]))
+        if drafted:
+            lines.append("📄 Đã có nháp, chờ gửi duyệt: "
+                         + ", ".join(drafted[:10]))
+        if reviewing:
+            lines.append("⏳ Đang chờ duyệt: " + ", ".join(reviewing[:10]))
+        self._send(chat_id, "\n".join(lines))
 
     def _cmd_menu(self, user, tg_user, chat_id):
         """Show the main reply keyboard again after it was hidden."""
@@ -855,6 +919,8 @@ class BotApp:
             self._cmd_danhsach(user, tg_user, chat_id)
         elif text == BTN_HELP:
             self._cmd_help(user, tg_user, chat_id)
+        elif text == BTN_CLAUDE:
+            self._cmd_claude_status(user, tg_user, chat_id)
         elif text == BTN_HIDE_KB:
             self._hide_keyboard(chat_id)
         else:
@@ -1120,7 +1186,8 @@ class BotApp:
         chat_id = (message.get("chat") or {}).get("id")
         message_id = message.get("message_id")
         user = self._touch_user(tg_user, chat_id) if tg_user.get("id") else None
-        card_snapshot = self._card_snapshot(data)
+        card_snapshot = self._card_snapshot(data, user)
+        dest_confirmed = False
 
         if data == "claim_admin":
             self._cb_claim_admin(callback_id, user, chat_id)
@@ -1170,6 +1237,14 @@ class BotApp:
         elif data.startswith("task_dest_all:"):
             self._task_dest_all(callback_id, user, chat_id,
                                 data.split(":", 1)[1])
+        elif data.startswith("task_dest_ok:"):
+            dest_confirmed = self._task_dest_ok(
+                callback_id, user, chat_id, data.split(":", 1)[1])
+        elif data.startswith("task_dest_head:"):
+            self._answer(
+                callback_id,
+                "Chạm vào từng kênh để chọn (✅) hoặc bỏ chọn (❌), "
+                "xong bấm OK ở dưới để chốt và gửi lệnh cho Muse.")
         elif data.startswith("task_dest:"):
             _prefix, code, dest = data.split(":", 2)
             self._task_dest(callback_id, user, chat_id, code, dest)
@@ -1179,10 +1254,26 @@ class BotApp:
         else:
             self._answer(callback_id, "Thao tác không còn hiệu lực.")
 
-        self._refresh_tapped_card(card_snapshot, user, chat_id, message_id)
+        if dest_confirmed and message_id is not None:
+            # Freeze the card the OK button sat on (owner's request,
+            # like Facebook action bars): strip its buttons and stamp
+            # the locked state. The flow continues on the fresh
+            # channel cards sent below it; a newly sent task card
+            # still works normally.
+            frozen_task = self.store.get_task(data.split(":", 1)[1])
+            if frozen_task is not None:
+                self._edit_card(
+                    chat_id, message_id,
+                    self.task_card_text(frozen_task)
+                    + "\n🔒 Đã chốt kênh đăng — Muse đang làm bài cho "
+                      "các kênh đã chọn. (Nút trên thẻ này đã đóng "
+                      "băng; duyệt và đăng ở thẻ kênh phía dưới.)")
+        else:
+            self._refresh_tapped_card(
+                card_snapshot, user, chat_id, message_id)
 
     # ------------------------------------------- edit-in-place card refresh
-    def _card_snapshot(self, data):
+    def _card_snapshot(self, data, user=None):
         """Remember a task/output card's state before a callback runs,
         so the tapped card can be refreshed in place afterwards."""
         try:
@@ -1191,8 +1282,10 @@ class BotApp:
                     else data.split(":", 1)[1]
                 task = self.store.get_task(code)
                 if task is not None:
-                    return ("task", code,
-                            (task["status"], task["destinations"]))
+                    pending = self._dest_pending(user, task)
+                    return ("task", code, (
+                        task["status"], task["destinations"],
+                        tuple(pending) if pending is not None else None))
             elif data.startswith("out_"):
                 output_id = int(data.partition(":")[2])
                 output = self.store.get_output(output_id)
@@ -1214,7 +1307,10 @@ class BotApp:
             task = self.store.get_task(key)
             if task is None:
                 return
-            if (task["status"], task["destinations"]) == before:
+            pending = self._dest_pending(user, task)
+            now = (task["status"], task["destinations"],
+                   tuple(pending) if pending is not None else None)
+            if now == before:
                 return
             self._edit_card(chat_id, message_id, self.task_card_text(task),
                             self.task_keyboard(task, user))
@@ -1452,7 +1548,8 @@ class BotApp:
             self._answer(
                 callback_id,
                 "Luồng mới: duyệt và đăng bài ngay trên thẻ kênh, nơi "
-                "có bản nháp. Bấm 📋 Thẻ các kênh trên thẻ việc để mở.",
+                "có bản nháp. Mở thẻ việc và bấm OK ở mục 🎯 Chọn kênh "
+                "đăng bài để bot gửi lại các thẻ kênh.",
                 show_alert=True,
             )
             return
@@ -1466,29 +1563,46 @@ class BotApp:
             self._answer(callback_id, "Thao tác không hợp lệ.")
 
     # ------------------------------------------- publish destination toggles
-    def _task_dest(self, callback_id, user, chat_id, code, dest):
+    def _check_dest_change(self, callback_id, user, code):
+        """Shared guards for the staged channel picker. Returns the
+        task when the tap may proceed, else None (already answered)."""
         task = self.store.get_task(code)
         if task is None:
-            self._answer(callback_id, "Không tìm thấy việc này.", show_alert=True)
-            return
+            self._answer(callback_id, "Không tìm thấy việc này.",
+                         show_alert=True)
+            return None
         if user is None or user["role"] is None:
             self._answer(callback_id, "⛔ Bạn chưa được cấp quyền.",
                          show_alert=True)
-            return
-        if dest not in DESTINATION_KEYS:
-            self._answer(callback_id, "Nơi đăng không hợp lệ.", show_alert=True)
-            return
-        if task["status"] in (STATUS_PUBLISHED, STATUS_RETRACTED, STATUS_CANCELLED):
+            return None
+        if task["status"] in (STATUS_PUBLISHED, STATUS_RETRACTED,
+                              STATUS_CANCELLED):
             self._answer(callback_id,
                          "Việc đã đóng, không đổi được nơi đăng nữa.",
                          show_alert=True)
-            return
+            return None
         if not _can_toggle_destinations(user, task):
             self._answer(callback_id,
                          "⛔ Bạn không có quyền đổi nơi đăng của việc này.",
                          show_alert=True)
+            return None
+        return task
+
+    def _task_dest(self, callback_id, user, chat_id, code, dest):
+        """Stage one channel flip. Nothing is written to the task yet:
+        the selection only takes effect when the user taps OK, which
+        is also what sends the work order to Muse."""
+        task = self._check_dest_change(callback_id, user, code)
+        if task is None:
             return
-        chosen = task_destinations(task)
+        if dest not in DESTINATION_KEYS:
+            self._answer(callback_id, "Nơi đăng không hợp lệ.",
+                         show_alert=True)
+            return
+        pending = self._dest_pending(user, task)
+        chosen = pending if pending is not None \
+            else task_destinations(task)
+        label = DESTINATION_LABELS[dest]
         if dest in chosen:
             if len(chosen) <= 1:
                 self._answer(callback_id,
@@ -1496,53 +1610,73 @@ class BotApp:
                              show_alert=True)
                 return
             chosen = [k for k in chosen if k != dest]
+            note = f"Đã bỏ chọn {label} (chưa chốt)"
         else:
             chosen = [k for k in DESTINATION_KEYS if k in chosen or k == dest]
-        self.store.set_task_destinations(code, chosen)
-        self.store.audit(user["telegram_id"], "set_destinations", "task",
-                         code, detail=json.dumps(chosen, ensure_ascii=False))
-        updated = self.store.get_task(code)
-        # Keep the per-channel outputs in step with the new selection:
-        # deselected channels lose their DRAFT/PENDING output, newly
-        # selected channels gain one.
-        self.store.sync_outputs_for_task(updated)
-        self.store.sync_task_status_from_outputs(code)
-        self._answer(callback_id, "Đã cập nhật nơi đăng.")
-        self._send(chat_id, self.task_card_text(updated),
-                   reply_markup=self.task_keyboard(updated, user))
+            note = f"Đã chọn {label} (chưa chốt)"
+        self.store.set_user_state(
+            user["telegram_id"], "task_dest_pending",
+            {"code": code, "chosen": chosen})
+        self._answer(callback_id, note + " — bấm OK để chốt và gửi "
+                                   "lệnh cho Muse.")
 
     def _task_dest_all(self, callback_id, user, chat_id, code):
-        task = self.store.get_task(code)
+        task = self._check_dest_change(callback_id, user, code)
         if task is None:
-            self._answer(callback_id, "Không tìm thấy việc này.", show_alert=True)
             return
-        if user is None or user["role"] is None:
-            self._answer(callback_id, "⛔ Bạn chưa được cấp quyền.",
-                         show_alert=True)
-            return
-        if task["status"] in (STATUS_PUBLISHED, STATUS_RETRACTED, STATUS_CANCELLED):
-            self._answer(callback_id,
-                         "Việc đã đóng, không đổi được nơi đăng nữa.",
-                         show_alert=True)
-            return
-        if not _can_toggle_destinations(user, task):
-            self._answer(callback_id,
-                         "⛔ Bạn không có quyền đổi nơi đăng của việc này.",
-                         show_alert=True)
-            return
-        if len(task_destinations(task)) >= len(DESTINATION_KEYS):
+        pending = self._dest_pending(user, task)
+        chosen = pending if pending is not None \
+            else task_destinations(task)
+        if len(chosen) >= len(DESTINATION_KEYS):
             self._answer(callback_id, "Đã chọn tất cả nơi đăng rồi.")
             return
-        chosen = list(DESTINATION_KEYS)
+        self.store.set_user_state(
+            user["telegram_id"], "task_dest_pending",
+            {"code": code, "chosen": list(DESTINATION_KEYS)})
+        self._answer(callback_id, "Đã chọn tất cả (chưa chốt) — bấm OK "
+                                  "để chốt và gửi lệnh cho Muse.")
+
+    def _task_dest_ok(self, callback_id, user, chat_id, code):
+        """Commit the staged channel selection and send the work order
+        to Muse: destinations + per-channel outputs are synced, the
+        channel cards are (re)sent, and the task lands in the queue
+        Muse watches for drafts to write."""
+        task = self._check_dest_change(callback_id, user, code)
+        if task is None:
+            return False
+        pending = self._dest_pending(user, task)
+        chosen = pending if pending is not None \
+            else task_destinations(task)
+        if not chosen:
+            self._answer(callback_id,
+                         "Hãy chọn ít nhất một kênh đăng trước.",
+                         show_alert=True)
+            return False
         self.store.set_task_destinations(code, chosen)
         self.store.audit(user["telegram_id"], "set_destinations", "task",
-                         code, detail=json.dumps(chosen, ensure_ascii=False))
+                         code,
+                         detail=json.dumps(chosen, ensure_ascii=False))
+        self.store.audit(user["telegram_id"], "destinations_confirmed",
+                         "task", code,
+                         detail=json.dumps(chosen, ensure_ascii=False))
         updated = self.store.get_task(code)
         self.store.sync_outputs_for_task(updated)
         self.store.sync_task_status_from_outputs(code)
-        self._answer(callback_id, "Đã chọn tất cả nơi đăng.")
-        # The tapped card itself is refreshed in place by
-        # _refresh_tapped_card; no fresh card is sent here.
+        if pending is not None:
+            self.store.clear_user_state(user["telegram_id"])
+        labels = " • ".join(DESTINATION_LABELS[k] for k in chosen)
+        self._answer(callback_id, f"Đã chốt kênh đăng: {labels}.")
+        self._send(
+            chat_id,
+            f"🎯 Đã chốt kênh đăng bài cho việc {code}: {labels}.\n"
+            "✅ Đã gửi đến Muse. Đợi Muse làm xong — khi xong, "
+            "Muse sẽ thông báo và gửi kết quả công việc (thẻ kênh "
+            "kèm bản nháp) ngay tại đây.")
+        updated = self.store.get_task(code)
+        for output in self.store.list_outputs(code):
+            if output["status"] != STATUS_CANCELLED:
+                self.send_output_card(chat_id, output, updated, user)
+        return True
 
     # ------------------------------------------------------------ edit flow
     def _task_edit_start(self, callback_id, user, chat_id, task):
