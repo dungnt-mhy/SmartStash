@@ -538,6 +538,16 @@ class Store:
                 (now_iso,),
             ).fetchall()
 
+    def list_all_scheduled_outputs(self):
+        """Every output currently holding a schedule, soonest
+        first — the scheduled-posts management view."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM outputs WHERE scheduled_at IS NOT NULL"
+                " AND status = 'APPROVED_WAITING'"
+                " ORDER BY scheduled_at, id"
+            ).fetchall()
+
     def latest_published_output(self, channel: str):
         """Most recently published output on a channel (its
         updated_at is the publish moment) — for the too-close

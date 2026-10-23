@@ -887,6 +887,53 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(updated["status"], "PUBLISHED")
         self.assertEqual(updated["pending_choice"], 0)
 
+    def test_lichdang_lists_scheduled_posts_with_cards(self):
+        from datetime import datetime, timedelta, timezone
+        soon = (datetime.now(timezone.utc) + timedelta(hours=2)
+                ).isoformat(timespec="seconds")
+        task = self.create_admin_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        for out in (web, fb):
+            self.store.set_output_status(out["id"], "APPROVED_WAITING")
+            self.store.set_output_schedule(out["id"], soon, None)
+        self.api.sent.clear()
+        self.app.handle_update(message_update(ADMIN, text="/lichdang"))
+        texts = self.api.texts_to(ADMIN)
+        self.assertTrue(any("Bài đang đặt lịch (2)" in t for t in texts))
+        self.assertTrue(any("🕐 Lịch đăng:" in t for t in texts))
+        # Contributor may not see the schedule board.
+        self.api.sent.clear()
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/lichdang"))
+        self.assertTrue(any("không có quyền" in t or "Chỉ người duyệt" in t
+                            for t in self.api.texts_to(CONTRIBUTOR)))
+
+    def test_lichdang_empty(self):
+        self.app.handle_update(message_update(ADMIN, text="/lichdang"))
+        self.assertTrue(any("Chưa có bài nào đang đặt lịch" in t
+                            for t in self.api.texts_to(ADMIN)))
+
+    def test_schedule_type_button_keeps_state_then_typed_time_works(self):
+        task = self.create_admin_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(web["id"], "https://example.com/d/web")
+        self.store.set_output_status(web["id"], "APPROVED_WAITING")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{web['id']}"))
+        prompt = self.api.sent[-1]
+        data = [b["callback_data"]
+                for row in prompt["reply_markup"]["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_schtype:{web['id']}", data)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schtype:{web['id']}"))
+        state = self.store.get_user_state(ADMIN)
+        self.assertEqual(state["state"], "await_output_schedule_time")
+        self.app.handle_update(
+            message_update(ADMIN, text=self._future_hhmm(2)))
+        self.assertIsNotNone(
+            self.store.get_output(web["id"])["scheduled_at"])
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Nút nhập giờ tự do + màn quản lý bài đang đặt lịch /lichdang
+- **Hạng mục:** Tính năng mới
+- **Thay đổi:** Hai yêu cầu của chủ dự án qua ảnh chụp màn chọn giờ: (1) thêm nút **⌨️ Nhập giờ khác** ngay trên màn chọn giờ nhanh — bấm là bot chờ anh nhắn giờ tự do theo mẫu `16:30` / `24/10 16:30` (trước đây chỉ ghi trong chữ hướng dẫn, dễ bị bỏ sót). (2) Thêm lệnh **/lichdang** — màn quản lý mọi bài đang đặt lịch trên toàn hệ thống, xếp theo giờ đăng, mỗi bài là thẻ kênh của chính nó để thao tác ngay tại chỗ: 🚀 Đăng ngay · 🕐 Đổi lịch · ❌ Hủy lịch (và cả Thu hồi nếu đã đăng nhầm). Lệnh nằm trong menu lệnh của người duyệt/Admin; Cộng tác viên/Nhân viên không xem được.
+- **Trạng thái:** Đã xong. Kiểm thử 140/140 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Ẩn nút trên thẻ khi màn chọn nơi đăng/giờ đăng đang mở, Hủy thì hiện lại
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án chỉ rõ qua ảnh chụp: bấm Đăng/Đặt lịch chuyển sang màn chọn nơi đăng rồi mà thẻ cũ vẫn còn nguyên nút, dễ bấm nhầm/bấm trùng. Nay khi màn chọn nơi đăng (Facebook) hoặc màn chọn giờ đăng đang mở, các thẻ kênh của đầu ra đó tự **ẩn toàn bộ nút** (cờ `pending_choice`); bấm **Hủy** ở bước chọn (Hủy đăng / Hủy đặt lịch — màn chọn giờ cũng có thêm nút hủy) thì thẻ **hiện lại đúng bộ nút trước**. Chọn xong nơi đăng thì thẻ giữ trạng thái ẩn trong lúc Muse đăng thật, đăng xong thẻ mới (đã đăng) thay thế; đặt lịch xong thẻ mới hiện kèm dòng 🕐 Lịch đăng như đã chốt. Đăng ngay ở kênh không có bước chọn (Website/Instagram) cũng ẩn nút ngay khi nhận lệnh, tránh bấm trùng hai lệnh đăng.

@@ -105,6 +105,7 @@ HELP_TEXT = (
     "/giaoviec — giao việc mới (hướng dẫn từng bước)\n"
     "/viec — xem danh sách việc\n"
     "/choduyet — việc đang chờ duyệt (người duyệt)\n"
+    "/lichdang — bài đang đặt lịch đăng (người duyệt)\n"
     "/thongke — thống kê việc (người duyệt)\n"
     "/vaitro — xem danh sách vai trò\n"
     "/capquyen — cấp quyền (Admin / Phó Admin)\n"
@@ -202,6 +203,7 @@ BASE_COMMANDS = [
 ]
 REVIEWER_COMMANDS = BASE_COMMANDS + [
     {"command": "choduyet", "description": "Việc đang chờ duyệt"},
+    {"command": "lichdang", "description": "Bài đang đặt lịch đăng"},
     {"command": "thongke", "description": "Thống kê việc"},
 ]
 ADMIN_COMMANDS = REVIEWER_COMMANDS + [
@@ -758,6 +760,7 @@ class BotApp:
             "/viec": self._cmd_viec,
             "/giaoviec": self._cmd_giaoviec,
             "/choduyet": self._cmd_choduyet,
+            "/lichdang": self._cmd_lichdang,
             "/thongke": self._cmd_thongke,
             "/help": self._cmd_help,
             "/trogiup": self._cmd_help,
@@ -959,6 +962,39 @@ class BotApp:
                 f" • {creator_name} • {_format_created(t['created_at'])} • {hint}"
             )
         self._send(chat_id, "\n".join(lines))
+
+    def _cmd_lichdang(self, user, tg_user, chat_id):
+        """Scheduled-posts management (owner's request): every post
+        holding a schedule, soonest first, each as its own channel
+        card — Đăng ngay / Đổi lịch / Hủy lịch work right there."""
+        if user is None or user["role"] is None:
+            self._send_main(
+                chat_id,
+                "⛔ Bạn chưa được cấp quyền. Chờ Admin cấp quyền nhé.",
+                user)
+            return
+        if not (roles.can_review(user["role"]) or roles.can_publish(user)):
+            self._send_main(
+                chat_id,
+                "⛔ Chỉ người duyệt / người có quyền đăng mới xem "
+                "được lịch đăng.",
+                user)
+            return
+        scheduled = self.store.list_all_scheduled_outputs()
+        if not scheduled:
+            self._send_main(
+                chat_id, "🕐 Chưa có bài nào đang đặt lịch đăng.", user)
+            return
+        self._send_main(
+            chat_id,
+            f"🕐 Bài đang đặt lịch ({len(scheduled)}), xếp theo giờ "
+            "đăng — thao tác ngay trên từng thẻ: 🚀 Đăng ngay · "
+            "🕐 Đổi lịch · ❌ Hủy lịch.",
+            user)
+        for output in scheduled:
+            task = self.store.get_task(output["task_code"])
+            if task is not None:
+                self.send_output_card(chat_id, output, task, user)
 
     def _cmd_choduyet(self, user, tg_user, chat_id):
         if user is None or not roles.can_review(user["role"]):
@@ -2200,6 +2236,9 @@ class BotApp:
         elif action == "out_schcancel":
             self._output_schedule_abort(
                 callback_id, user, chat_id, output, task, message_id)
+        elif action == "out_schtype":
+            self._output_schedule_type(
+                callback_id, user, chat_id, output, task)
         elif action == "out_unschedule":
             self._output_unschedule(
                 callback_id, user, chat_id, output, task, message_id)
@@ -2699,8 +2738,25 @@ class BotApp:
                  _btn("⏱ Sau 2 giờ", f"out_schquick:{oid}:120")],
                 [_btn("🌆 Tối nay 20:00", f"out_schquick:{oid}:eve"),
                  _btn("🌅 Sáng mai 8:00", f"out_schquick:{oid}:mor")],
+                [_btn("⌨️ Nhập giờ khác", f"out_schtype:{oid}")],
                 [_btn("🗑 Hủy đặt lịch", f"out_schcancel:{oid}")],
             ]))
+
+    def _output_schedule_type(self, callback_id, user, chat_id,
+                              output, task):
+        """The ⌨️ Nhập giờ khác button: keep the pending schedule
+        state and simply tell them to type the time."""
+        state = self.store.get_user_state(user["telegram_id"])
+        if not state or state["state"] != "await_output_schedule_time" \
+                or (state["payload"] or {}).get("output_id") != output["id"]:
+            self._answer(callback_id,
+                         "⌛ Phiên đặt lịch này đã kết thúc.")
+            return
+        self._answer(callback_id, "Nhắn giờ đăng 👇")
+        self._send(
+            chat_id,
+            "⌨️ Nhắn giờ đăng theo mẫu 16:30 hoặc 24/10 16:30 "
+            "(giờ Việt Nam) — bot đang chờ giờ của bạn.")
 
     def _output_schedule_quick(self, callback_id, user, chat_id,
                                output, task, preset, message_id):
