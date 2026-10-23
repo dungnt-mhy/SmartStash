@@ -1907,14 +1907,18 @@ class BotApp:
         if is_creator and status in (STATUS_DRAFT, STATUS_REJECTED):
             rows.append([_btn("📤 Gửi duyệt", f"out_submit:{oid}")])
         if roles.can_review(viewer["role"]) and status == STATUS_PENDING:
+            # Owner's review row: Duyệt · Trả lại · Hủy bài, one row.
             rows.append([
                 _btn("✅ Duyệt", f"out_approve:{oid}"),
-                _btn("↩️ Trả lại kèm yêu cầu sửa", f"out_reject:{oid}"),
+                _btn("↩️ Trả lại", f"out_reject:{oid}"),
+                _btn("🗑 Hủy bài", f"out_cancel:{oid}"),
             ])
         if roles.can_review(viewer["role"]) and status == STATUS_DRAFT \
                 and output["draft_ref"]:
             rows.append([
-                _btn("↩️ Trả lại kèm yêu cầu sửa", f"out_reject:{oid}")])
+                _btn("↩️ Trả lại", f"out_reject:{oid}"),
+                _btn("🗑 Hủy bài", f"out_cancel:{oid}"),
+            ])
         if status == STATUS_APPROVED_WAITING:
             rows.append([_btn("🚀 Đăng", f"out_publish:{oid}")])
         if status == STATUS_PUBLISHED:
@@ -1992,6 +1996,8 @@ class BotApp:
             self._output_approve(callback_id, user, chat_id, output, task)
         elif action == "out_reject":
             self._output_reject_start(callback_id, user, chat_id, output, task)
+        elif action == "out_cancel":
+            self._output_cancel(callback_id, user, chat_id, output, task)
         elif action == "out_publish":
             self._output_publish(callback_id, user, chat_id, output, task)
         elif action == "out_retract":
@@ -2135,6 +2141,36 @@ class BotApp:
         # single "Đã trả lại" notice above — no extra message and no
         # re-sent card to the creator. The creator sees the card again
         # when Muse attaches the revised draft.
+
+    def _output_cancel(self, callback_id, user, chat_id, output, task):
+        """🗑 Hủy bài: cancel this channel's article outright
+        (reviewers only). One notice to the actor, nothing to the
+        creator — the card itself updates in place."""
+        if not roles.can_review(user["role"]):
+            self.store.audit(user["telegram_id"],
+                             "denied_output_cancel_attempt", "output",
+                             output["id"], detail=f"role={user['role']}")
+            self._answer(callback_id, "⛔ Bạn không có quyền hủy bài.",
+                         show_alert=True)
+            return
+        if output["status"] not in (STATUS_DRAFT, STATUS_PENDING,
+                                    STATUS_REJECTED):
+            self._answer(callback_id,
+                         "Bài này không còn ở trạng thái hủy được.",
+                         show_alert=True)
+            return
+        self.store.set_output_status(output["id"], STATUS_CANCELLED)
+        self.store.audit(user["telegram_id"], "cancel_output", "output",
+                         output["id"],
+                         detail=f"task={task['code']} "
+                                f"channel={output['channel']}")
+        self.store.sync_task_status_from_outputs(task["code"])
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        self._answer(callback_id, "Đã hủy bài.")
+        self._send(
+            chat_id,
+            f"🗑 Đã hủy bài ở thẻ kênh {label} của việc {task['code']}.")
 
     def _output_publish(self, callback_id, user, chat_id, output, task):
         if not roles.can_publish(user):

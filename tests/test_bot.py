@@ -816,6 +816,43 @@ class BotTestCase(unittest.TestCase):
         creator_texts = self.api.texts_to(CONTRIBUTOR)
         self.assertFalse(any("bị trả lại" in t for t in creator_texts))
 
+    def test_output_cancel_button_row_and_flow(self):
+        """The review row is [✅ Duyệt | ↩️ Trả lại | 🗑 Hủy bài] on
+        one row; cancelling is final, reviewers only, one notice."""
+        task = self.create_contributor_task()
+        code = task["code"]
+        fb = self.outputs_by_channel(code)["facebook"]
+        self.store.set_output_draft(fb["id"], "https://telegra.ph/x")
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"out_submit:{fb['id']}"))
+        editor = self.store.get_user(EDITOR)
+        keyboard = self.app.output_keyboard(
+            self.store.get_output(fb["id"]), editor)
+        row_labels = [b["text"] for row in keyboard["inline_keyboard"]
+                      for b in row]
+        self.assertEqual(
+            row_labels[-3:], ["✅ Duyệt", "↩️ Trả lại", "🗑 Hủy bài"])
+        # A contributor cannot cancel.
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"out_cancel:{fb['id']}"))
+        self.assertTrue(self.api.answered[-1]["show_alert"])
+        self.assertEqual(
+            self.store.get_output(fb["id"])["status"], "PENDING")
+        # The reviewer cancels: status flips, one notice, audit logged.
+        self.api.sent.clear()
+        self.app.handle_update(
+            callback_update(EDITOR, f"out_cancel:{fb['id']}"))
+        self.assertEqual(
+            self.store.get_output(fb["id"])["status"], "CANCELLED")
+        self.assertEqual(len(self.store.audit_entries("cancel_output")), 1)
+        self.assertTrue(any(
+            "Đã hủy bài" in t for t in self.api.texts_to(EDITOR)))
+        self.assertFalse(any(
+            "Đã hủy bài" in t for t in self.api.texts_to(CONTRIBUTOR)))
+        # A cancelled card has no buttons left.
+        self.assertIsNone(self.app.output_keyboard(
+            self.store.get_output(fb["id"]), editor))
+
     def test_hide_and_show_main_keyboard(self):
         self.api.sent.clear()
         self.app.handle_update(

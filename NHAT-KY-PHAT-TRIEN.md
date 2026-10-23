@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Hàng nút duyệt trên thẻ kênh: Duyệt · Trả lại · Hủy bài
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo chỉ đạo của chủ dự án: nút "↩️ Trả lại kèm yêu cầu sửa" rút gọn tên thành **"↩️ Trả lại"** (lời nhắc nhập nội dung cần sửa giữ nguyên khi bấm); thêm nút mới **"🗑 Hủy bài"** — hủy hẳn đầu ra của kênh đó (trạng thái CANCELLED, thẻ mất hết nút), chỉ người có quyền duyệt mới bấm được, bấm xong chỉ 1 tin báo cho người bấm. Trên thẻ đang chờ duyệt, ba nút **Duyệt · Trả lại · Hủy bài nằm cùng 1 hàng**; trên thẻ kênh đang Nháp đã có bản nháp, hàng tương ứng là [Trả lại · Hủy bài].
+- **Trạng thái:** Đã xong. Kiểm thử 90/90 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Trả bài chỉ còn đúng 1 thông báo
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo chỉ đạo của chủ dự án: khi người duyệt bấm trả lại thẻ kênh kèm yêu cầu sửa, bot **chỉ gửi đúng 1 tin** "↩️ Đã trả lại thẻ kênh … ✏️ Yêu cầu chỉnh sửa: …" cho người trả — **bỏ hẳn** tin báo + thẻ gửi lại cho người tạo. Người tạo chỉ nhận lại thẻ khi Muse gắn bản sửa mới (đúng nhịp "khi nào có kết quả mới gửi lại"). Đã áp dụng ngay cho lượt trả thật đầu tiên (CV-0002 · Instagram, yêu cầu "Viết hay hơn"): bản Instagram viết lại hay hơn (carousel 4 slide, caption mới) và thẻ đã quay lại Telegram.
