@@ -133,6 +133,16 @@ CREATE TABLE IF NOT EXISTS intake_buffer (
     updated_at  TEXT NOT NULL,
     PRIMARY KEY (chat_id, telegram_id)
 );
+CREATE TABLE IF NOT EXISTS output_cards (
+    id INTEGER PRIMARY KEY,
+    output_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    user_id INTEGER,
+    updated_at TEXT NOT NULL,
+    UNIQUE(output_id, chat_id, message_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_state (
     telegram_id INTEGER PRIMARY KEY,
     state       TEXT NOT NULL,
@@ -474,6 +484,34 @@ class Store:
                 " updated_at = ? WHERE id = ?",
                 (url, utcnow_iso(), output_id),
             )
+
+    # ------------------------------------------------ output cards
+    def record_output_card(self, output_id: int, chat_id: int,
+                           message_id: int, user_id=None) -> None:
+        """Remember a channel card message so a newer card for the
+        same output can freeze (de-button) it later."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO output_cards"
+                " (output_id, chat_id, message_id, user_id, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (output_id, chat_id, message_id, user_id, utcnow_iso()),
+            )
+
+    def list_output_cards(self, output_id: int, chat_id: int | None = None):
+        query = "SELECT * FROM output_cards WHERE output_id = ?"
+        args: list = [output_id]
+        if chat_id is not None:
+            query += " AND chat_id = ?"
+            args.append(chat_id)
+        with self._lock:
+            return self._conn.execute(
+                query + " ORDER BY id", args).fetchall()
+
+    def delete_output_card(self, row_id: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM output_cards WHERE id = ?", (row_id,))
 
     def cancel_open_outputs(self, task_code: str) -> int:
         """Cancel every DRAFT/PENDING output of a task. Returns the count."""

@@ -414,6 +414,35 @@ class BotTestCase(unittest.TestCase):
         self.assertTrue(any(
             "đã được duyệt" in t for t in self.api.texts_to(CONTRIBUTOR)))
 
+    def test_new_output_card_freezes_the_previous_one(self):
+        # Owner's report: after a publish, the OLD card in the chat
+        # still showed its Đăng button. Every fresh card must freeze
+        # the previous cards of the same output (state updated,
+        # buttons stripped); only the newest card stays live.
+        task = self.create_contributor_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(web["id"], "https://example.com/d/web")
+        creator = self.store.get_user(CONTRIBUTOR)
+        first = self.app.send_output_card(
+            CONTRIBUTOR, self.store.get_output(web["id"]), task, creator)
+        first_id = first["message_id"]
+        self.store.set_output_public_url(
+            web["id"], "https://example.com/bai-viet")
+        self.api.edits.clear()
+        second = self.app.send_output_card(
+            CONTRIBUTOR, self.store.get_output(web["id"]),
+            self.store.get_task(task["code"]), creator,
+            prefix="✅ Đã đăng thành công:")
+        frozen = [e for e in self.api.edits
+                  if e["message_id"] == first_id]
+        self.assertEqual(len(frozen), 1)
+        self.assertEqual(frozen[0]["reply_markup"],
+                         {"inline_keyboard": []})
+        self.assertIn("Đã đăng", frozen[0]["text"])
+        tracked = self.store.list_output_cards(web["id"])
+        self.assertEqual(len(tracked), 1)
+        self.assertEqual(tracked[0]["message_id"], second["message_id"])
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

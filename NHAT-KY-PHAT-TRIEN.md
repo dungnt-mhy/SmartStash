@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thẻ kênh mới tự đóng băng thẻ cũ: hết nút Đăng "sống" trên thẻ đã đăng
+- **Hạng mục:** Trải nghiệm người dùng / tính nhất quán thẻ
+- **Thay đổi:** Chủ dự án gửi ảnh chụp thẻ CV-0004: bài đã đăng xong mà thẻ cũ trong khung chat vẫn hiện nút 🚀 Đăng. Nguyên nhân: bot chỉ sửa tại chỗ thẻ bị bấm, còn các thẻ gửi sau (gắn nháp, hoàn tất đăng) là tin mới — thẻ cũ giữ nguyên nút bấm cũ. Nay bot ghi nhớ mọi thẻ kênh đã gửi (bảng mới `output_cards`); mỗi khi gửi thẻ mới cho một đầu ra, các thẻ cũ của chính đầu ra đó trong cùng cuộc trò chuyện được sửa tại chỗ về trạng thái hiện tại và **gỡ toàn bộ nút** (đóng băng như thẻ việc đã chốt). Chỉ thẻ mới nhất còn nút thao tác.
+- **Trạng thái:** Đã xong. Kiểm thử 100/100 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Admin bỏ qua duyệt với việc của mình · chốt nơi đăng Facebook ngay trong Telegram · hết trùng nút Đăng
 - **Hạng mục:** Quy trình duyệt/đăng
 - **Thay đổi:** Ba phản ánh liên tiếp của chủ dự án qua ảnh chụp CV-0006: (1) "Admin thì cần gì gửi duyệt, duyệt" — thẻ kênh của việc do chính Admin tạo, khi đã có nháp, hiện thẳng nút 🚀 Đăng thay cho 📤 Gửi duyệt; bấm Đăng là tự nhảy qua khâu duyệt (audit approve_output auto=admin_own) rồi đi tiếp. (2) "Phải chốt ở Telegram chứ" — bấm Đăng ở kênh Facebook nay hiện câu hỏi ngay trong Telegram: [👤 Trang cá nhân] / [📄 Fanpage Minhy]; chọn xong mới ghi lệnh đăng (audit publish_requested kèm target=profile/page) và tin chọn nơi đăng tự sửa thành tin nhận lệnh duy nhất. Bộ theo dõi nền cũng chuyển target này cho Muse khi đăng. (3) "Đã duyệt rồi, xong lại hiện đăng, bên dưới cũng có đăng" — nguyên nhân: thẻ gốc tự sửa tại chỗ thành chờ đăng (có nút Đăng) VÀ bot gửi thêm một thẻ thông báo duyệt nữa (cũng có nút Đăng). Đã bỏ thẻ thông báo khi người duyệt chính là người tạo (thẻ đã bấm tự cập nhật là đủ); duyệt việc của người khác vẫn báo cho người tạo như cũ.

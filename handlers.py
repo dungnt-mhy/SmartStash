@@ -1418,6 +1418,8 @@ class BotApp:
             self._edit_card(chat_id, message_id,
                             self.output_card_text(output, task),
                             self.output_keyboard(output, user))
+            self.store.record_output_card(
+                output["id"], chat_id, message_id, user["telegram_id"])
 
     # ------------------------------------------------------- claim admin flow
     def _cb_claim_admin(self, callback_id, user, chat_id):
@@ -1953,8 +1955,34 @@ class BotApp:
     def send_output_card(self, chat_id, output, task, viewer, prefix=""):
         text = (prefix + "\n" if prefix else "") + \
             self.output_card_text(output, task)
-        return self._send(chat_id, text,
-                          reply_markup=self.output_keyboard(output, viewer))
+        # A fresh card supersedes every earlier card of this output
+        # in this chat: freeze the old ones first so no stale action
+        # button (e.g. Đăng on an already-published card) survives.
+        self._freeze_stale_output_cards(chat_id, output, task)
+        result = self._send(
+            chat_id, text,
+            reply_markup=self.output_keyboard(output, viewer))
+        message_id = None
+        if isinstance(result, dict):
+            message_id = result.get("message_id") or \
+                (result.get("result") or {}).get("message_id")
+        if message_id:
+            self.store.record_output_card(
+                output["id"], chat_id, message_id,
+                viewer["telegram_id"] if viewer else None)
+        return result
+
+    def _freeze_stale_output_cards(self, chat_id, output, task):
+        try:
+            rows = self.store.list_output_cards(output["id"], chat_id)
+        except Exception:
+            return
+        if not rows:
+            return
+        text = self.output_card_text(output, task)
+        for row in rows:
+            self._edit_card(chat_id, row["message_id"], text)
+            self.store.delete_output_card(row["id"])
 
     def _notify_output_creator(self, output, task, prefix=""):
         creator = self.store.get_user(task["creator_id"])
