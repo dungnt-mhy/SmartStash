@@ -20,6 +20,12 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Sửa trải nghiệm wizard Bước 1: nút Xong luôn ở dưới tay
+- **Hạng mục:** Tính năng / Trải nghiệm người dùng
+- **Thay đổi:** Người dùng phản ánh ở Bước 1 (gửi ảnh/slide) phải kéo lên tìm nút ✅ Xong trên tin nhắn hướng dẫn cũ, rất phiền. Đã sửa 3 lớp: (1) trong lúc chạy wizard, bàn phím dưới khung chat tạm đổi thành nút ✅ Xong / ❌ Huỷ luôn ghim ở dưới, tạo việc xong hoặc huỷ thì bàn phím chính tự quay lại; (2) mỗi tin nhắn xác nhận "Đã nhận file" đều gắn kèm nút ✅ Xong và ❌ Huỷ ngay dưới tin mới nhất; (3) gõ chữ "xong" cũng chuyển sang Bước 2 được.
+- **Lý do:** Phản hồi trực tiếp của chủ dự án khi dùng thử wizard.
+- **Trạng thái:** Đã xong. Kiểm thử 73/73 đạt (thêm 3 test cho bàn phím ghim của wizard, gõ "xong", khôi phục bàn phím chính), bot đã khởi động lại bản mới.
+
 ### 2026-10-23 — Xây xong Giai đoạn 1: menu, bàn phím chính, wizard, thẻ sửa tại chỗ
 - **Hạng mục:** Tính năng
 - **Thay đổi:** (1) Menu lệnh ở nút Menu theo vai trò: danh sách cơ bản cho mọi người (/start, /giaoviec, /viec, /vaitro, /help), người duyệt có thêm /choduyet và /thongke, Admin/Phó Admin thêm /danhsach, /capquyen, /thuhoi — bot tự đăng ký lại menu cho từng người khi khởi động, khi /start và khi được cấp/thu hồi quyền. (2) Bàn phím chính ghim theo vai trò hiện ngay sau /start (nút Giao việc mới, Việc của tôi/Tất cả việc, Chờ duyệt, Thống kê, Người dùng, Trợ giúp). (3) Lệnh /giaoviec và nút Giao việc mới mở luồng tạo việc 3 bước: gửi file → nhập gợi ý → chọn nơi đăng bằng nút bật/tắt → bấm Tạo việc; cách gửi thẳng ảnh + gợi ý như cũ vẫn chạy song song. (4) Thẻ việc/thẻ kênh được sửa tại chỗ khi bấm nút thao tác thay vì gửi thẻ mới. (5) Thêm lệnh /choduyet (hàng chờ duyệt) và /thongke (bản thống kê nhanh dạng chữ; biểu đồ và xuất file vẫn thuộc Giai đoạn 2).

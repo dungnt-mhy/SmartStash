@@ -843,6 +843,45 @@ class Phase1TestCase(BotTestCase):
         self.assertEqual(edit["chat_id"], CONTRIBUTOR)
         self.assertIn("Chờ duyệt (PENDING)", edit["text"])
 
+    def test_wizard_pinned_keyboard_and_label_advance(self):
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/giaoviec"))
+        # The step-1 prompt swaps in the pinned wizard reply keyboard.
+        prompt = self.api.sent[-1]
+        kb = (prompt["reply_markup"] or {}).get("keyboard", [])
+        labels = [b["text"] for row in kb for b in row]
+        self.assertIn("✅ Xong, sang bước gợi ý", labels)
+        # Every file ack re-attaches the inline Done button, so the
+        # newest message always carries it.
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        ack = self.api.sent[-1]
+        self.assertIn("wiz_done_files", self.api.all_callback_data())
+        self.assertIn("Đã nhận file", ack["text"])
+        # Tapping the pinned reply-keyboard Done button advances too.
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="✅ Xong, sang bước gợi ý"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(state["state"], "wizard_hint")
+
+    def test_wizard_typing_xong_advances_for_writer(self):
+        writer = 999
+        self.store.register_user(writer, "writer999", "Writer999", writer)
+        self.store.set_role(writer, roles.ROLE_WRITER)
+        self.app.handle_update(message_update(writer, text="/giaoviec"))
+        self.app.handle_update(message_update(writer, text="xong"))
+        state = self.store.get_user_state(writer)
+        self.assertEqual(state["state"], "wizard_hint")
+
+    def test_wizard_create_restores_main_keyboard(self):
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="📝 Giao việc mới"))
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_done_files"))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Gợi ý cho việc mới"))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
+        labels = self.keyboard_labels_of(CONTRIBUTOR)
+        self.assertIn("📋 Việc của tôi", labels)
+
     def test_choduyet_and_thongke_for_reviewers_only(self):
         task = self.create_contributor_task()
         self.app.handle_update(

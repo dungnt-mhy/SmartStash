@@ -88,8 +88,12 @@ là tin nhắn mới như trước).
 ### Giao việc (tạo bài)
 
 Cách mới (khuyên dùng): bấm **📝 Giao việc mới** trên bàn phím chính
-(hoặc lệnh `/giaoviec`) rồi làm theo 3 bước bot hướng dẫn. Cách cũ vẫn
-dùng được:
+(hoặc lệnh `/giaoviec`) rồi làm theo 3 bước bot hướng dẫn. Trong lúc
+giao việc, bàn phím tạm đổi thành các nút **✅ Xong** / **❌ Huỷ** luôn
+ghim ở phía dưới (khỏi phải kéo lên tìm nút trên tin nhắn cũ), mỗi tin
+xác nhận nhận file cũng gắn kèm nút Xong, và gõ chữ `xong` cũng chuyển
+bước được; tạo việc xong bàn phím chính tự quay lại. Cách cũ vẫn dùng
+được:
 
 1. Gửi **ảnh hoặc tài liệu/slide** cho bot (chú thích/caption của ảnh
    được lưu làm gợi ý).

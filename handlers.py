@@ -141,6 +141,31 @@ def main_keyboard(user):
     }
 
 
+#: Wizard reply-keyboard labels. While the creation wizard runs, the
+#: reply keyboard is swapped to these pinned buttons so the user never
+#: has to scroll up to the step prompt to advance or cancel.
+BTN_WIZ_DONE = "✅ Xong, sang bước gợi ý"
+BTN_WIZ_CANCEL = "❌ Huỷ giao việc"
+
+
+def wizard_files_keyboard():
+    return {
+        "keyboard": [[{"text": BTN_WIZ_DONE}], [{"text": BTN_WIZ_CANCEL}]],
+        "resize_keyboard": True,
+        "is_persistent": True,
+        "input_field_placeholder": "Đang giao việc — gửi ảnh/slide vào đây…",
+    }
+
+
+def wizard_hint_keyboard():
+    return {
+        "keyboard": [[{"text": BTN_WIZ_CANCEL}]],
+        "resize_keyboard": True,
+        "is_persistent": True,
+        "input_field_placeholder": "Đang giao việc — nhập gợi ý…",
+    }
+
+
 #: Command lists for the bottom-left Menu button. Telegram has no
 #: per-role command scope, so the base list is registered for everyone
 #: and a longer list is registered per private chat (BotCommandScopeChat)
@@ -794,6 +819,10 @@ class BotApp:
         text was a button label (and has been handled)."""
         if text == BTN_NEW_TASK:
             self._wizard_start(user, chat_id)
+        elif text == BTN_WIZ_DONE:
+            self._wizard_advance_from_files(user, chat_id)
+        elif text == BTN_WIZ_CANCEL:
+            self._wizard_cancel(user, chat_id)
         elif text in (BTN_MY_TASKS, BTN_ALL_TASKS):
             self._cmd_viec(user, tg_user, chat_id)
         elif text == BTN_PENDING:
@@ -834,11 +863,9 @@ class BotApp:
         self._send(
             chat_id,
             "📝 Giao việc mới — Bước 1/3: Gửi ảnh/slide cho việc này "
-            "(gửi bao nhiêu cũng được). Xong thì bấm nút bên dưới.",
-            reply_markup=_keyboard([
-                [_btn("✅ Xong, sang bước gợi ý", "wiz_done_files")],
-                [_btn("❌ Huỷ giao việc", "wiz_cancel")],
-            ]),
+            "(gửi bao nhiêu cũng được). Gửi xong, bấm nút ✅ Xong ở bàn "
+            "phím bên dưới — nút luôn ở đó, không cần kéo lên tìm.",
+            reply_markup=wizard_files_keyboard(),
         )
 
     def _wizard_message(self, user, chat_id, state, text, media_item, caption):
@@ -852,23 +879,32 @@ class BotApp:
                 payload.setdefault("captions", []).append(caption)
             self.store.set_user_state(user["telegram_id"], step, payload)
             note = (
-                "Gửi thêm, hoặc bấm ✅ Xong để sang bước gợi ý."
+                "Gửi thêm, hoặc bấm ✅ Xong ngay dưới đây."
                 if step == "wizard_files"
                 else "Đã thêm file vào việc đang tạo."
             )
+            # The buttons ride on every ack, so the newest message in
+            # the chat always carries them, however many files were sent.
+            markup = _keyboard([
+                [_btn("✅ Xong, sang bước gợi ý", "wiz_done_files")],
+                [_btn("❌ Huỷ giao việc", "wiz_cancel")],
+            ]) if step == "wizard_files" else None
             self._send(
                 chat_id,
                 f"Đã nhận file (tổng {len(payload['files'])}). {note}",
+                reply_markup=markup,
             )
             return
         if not text:
             return
         if step == "wizard_files":
+            if text.strip().lower() in ("xong", "xong rồi", "đủ rồi", "done", "ok"):
+                self._wizard_advance_from_files(user, chat_id)
+                return
             self._send(
                 chat_id,
-                "Đang ở Bước 1: hãy gửi ảnh/slide, hoặc bấm ✅ Xong nếu "
-                "việc này không có file (Nhân viên viết bài trở lên có "
-                "thể giao việc chỉ bằng bản thảo).",
+                "Đang ở Bước 1: cứ gửi ảnh/slide vào đây. Xong thì bấm "
+                "nút ✅ Xong ở bàn phím bên dưới, hoặc gõ chữ \"xong\".",
             )
             return
         # wizard_hint: this text is the hint (or the writer's draft).
@@ -905,29 +941,43 @@ class BotApp:
             return state
         return None
 
-    def _cb_wizard_done_files(self, callback_id, user, chat_id):
+    def _wizard_advance_from_files(self, user, chat_id, callback_id=None):
+        """Shared by the inline button, the pinned reply-keyboard button
+        and typing "xong": move the wizard from the files step to the
+        hint step."""
         state = self._wizard_state(user)
         if state is None or state["state"] != "wizard_files":
-            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
-                         show_alert=True)
+            if callback_id:
+                self._answer(callback_id, "Phiên giao việc đã kết thúc.",
+                             show_alert=True)
+            else:
+                self._send_main(
+                    chat_id,
+                    "Bạn không ở bước gửi file nào. "
+                    "Bấm 📝 Giao việc mới để bắt đầu.",
+                    user,
+                )
             return
         payload = state["payload"]
         if user["role"] == roles.ROLE_CONTRIBUTOR and not payload.get("files"):
-            self._answer(
-                callback_id,
-                "Cộng tác viên cần gửi ít nhất một ảnh/tài liệu trước.",
-                show_alert=True,
-            )
+            note = "Cộng tác viên cần gửi ít nhất một ảnh/tài liệu trước."
+            if callback_id:
+                self._answer(callback_id, note, show_alert=True)
+            else:
+                self._send(chat_id, "⛔ " + note)
             return
         self.store.set_user_state(user["telegram_id"], "wizard_hint", payload)
-        self._answer(callback_id)
+        if callback_id:
+            self._answer(callback_id)
         self._send(
             chat_id,
             "Bước 2/3: Nhắn gợi ý ngắn cho việc này "
             "(Nhân viên viết bài có thể dán luôn bản thảo).",
-            reply_markup=_keyboard(
-                [[_btn("❌ Huỷ giao việc", "wiz_cancel")]]),
+            reply_markup=wizard_hint_keyboard(),
         )
+
+    def _cb_wizard_done_files(self, callback_id, user, chat_id):
+        self._wizard_advance_from_files(user, chat_id, callback_id)
 
     def _cb_wizard_dest(self, callback_id, user, chat_id, dest, message):
         state = self._wizard_state(user)
@@ -980,20 +1030,31 @@ class BotApp:
         hint = (payload.get("hint") or "").strip()
         self.store.clear_user_state(user["telegram_id"])
         self._answer(callback_id, "Đã tạo việc.")
-        self._create_task(user, chat_id, hint, payload.get("files") or [],
-                          destinations=destinations)
+        task = self._create_task(user, chat_id, hint,
+                                 payload.get("files") or [],
+                                 destinations=destinations)
+        self._send_main(
+            chat_id,
+            f"✅ Đã tạo việc {task['code']} (thẻ việc ở phía trên). "
+            "Bàn phím chính đã quay lại.",
+            user,
+        )
 
-    def _cb_wizard_cancel(self, callback_id, user, chat_id):
+    def _wizard_cancel(self, user, chat_id, callback_id=None):
         if user is not None:
             state = self.store.get_user_state(user["telegram_id"])
             if state and state["state"].startswith("wizard_"):
                 self.store.clear_user_state(user["telegram_id"])
-        self._answer(callback_id, "Đã huỷ giao việc.")
+        if callback_id:
+            self._answer(callback_id, "Đã huỷ giao việc.")
         self._send_main(
             chat_id,
             "Đã huỷ giao việc. Bấm 📝 Giao việc mới khi cần tạo việc khác.",
             user,
         )
+
+    def _cb_wizard_cancel(self, callback_id, user, chat_id):
+        self._wizard_cancel(user, chat_id, callback_id)
 
     # ------------------------------------------------------------ callbacks
     def handle_callback(self, callback: dict) -> None:
