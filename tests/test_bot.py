@@ -813,6 +813,80 @@ class BotTestCase(unittest.TestCase):
         self.assertIn("⏳ Đang gửi cho Muse…", texts)
         self.assertTrue(any("Đã tạo việc" in t for t in texts))
 
+    def test_publish_choice_freezes_card_until_abort(self):
+        # Owner's rule: once the target-choice screen opens, the
+        # card's buttons hide; cancelling the choice brings back
+        # the previous buttons.
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        self.store.set_output_status(fb["id"], "APPROVED_WAITING")
+        admin = self.store.get_user(ADMIN)
+        self.app.send_output_card(
+            ADMIN, self.store.get_output(fb["id"]), task, admin)
+        card_id = self.store.list_output_cards(fb["id"], ADMIN)[0][
+            "message_id"]
+        self.api.edits.clear()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{fb['id']}"))
+        self.assertEqual(self.store.get_output(fb["id"])["pending_choice"], 1)
+        frozen = [e for e in self.api.edits
+                  if e["message_id"] == card_id]
+        self.assertTrue(frozen)
+        self.assertEqual(frozen[-1]["reply_markup"],
+                         {"inline_keyboard": []})
+        # Cancel at the choice step: buttons return.
+        self.api.edits.clear()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubabort:{fb['id']}"))
+        self.assertEqual(self.store.get_output(fb["id"])["pending_choice"], 0)
+        restored = [e for e in self.api.edits
+                    if e["message_id"] == card_id]
+        self.assertTrue(restored)
+        data = [b["callback_data"]
+                for row in restored[-1]["reply_markup"]["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_publish:{fb['id']}", data)
+        self.assertIn(f"out_schedule:{fb['id']}", data)
+
+    def test_schedule_flow_freezes_then_cancel_restores(self):
+        task = self.create_admin_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(web["id"], "https://example.com/d/web")
+        self.store.set_output_status(web["id"], "APPROVED_WAITING")
+        admin = self.store.get_user(ADMIN)
+        self.app.send_output_card(
+            ADMIN, self.store.get_output(web["id"]), task, admin)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{web['id']}"))
+        self.assertEqual(
+            self.store.get_output(web["id"])["pending_choice"], 1)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schcancel:{web['id']}"))
+        self.assertEqual(
+            self.store.get_output(web["id"])["pending_choice"], 0)
+        self.assertIsNone(self.store.get_user_state(ADMIN))
+
+    def test_direct_publish_freezes_until_completion(self):
+        import types
+
+        task = self.create_admin_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(web["id"], "https://example.com/d/web")
+        self.store.set_output_status(web["id"], "APPROVED_WAITING")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{web['id']}"))
+        self.assertEqual(
+            self.store.get_output(web["id"])["pending_choice"], 1)
+        args = types.SimpleNamespace(
+            task_code=task["code"], channel="website",
+            public_url="https://example.com/bai", no_notify=True)
+        rc = botctl.cmd_set_output_published(self.store, args)
+        self.assertEqual(rc, 0)
+        updated = self.store.get_output(web["id"])
+        self.assertEqual(updated["status"], "PUBLISHED")
+        self.assertEqual(updated["pending_choice"], 0)
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

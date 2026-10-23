@@ -550,6 +550,7 @@ def cmd_attach_output_draft(store, args) -> int:
                   f"{exc}", file=sys.stderr)
             return 1
         print(f"Trang nháp: {ref}")
+    store.set_output_pending_choice(output["id"], False)
     store.set_output_draft(output["id"], ref)
     store.audit(None, "attach_output_draft", "output", output["id"],
                 detail=f"task={args.task_code} channel={args.channel} "
@@ -567,6 +568,7 @@ def cmd_set_output_published(store, args) -> int:
     task, output = _get_task_and_output(store, args.task_code, args.channel)
     if output is None:
         return 1
+    store.set_output_pending_choice(output["id"], False)
     store.set_output_public_url(output["id"], args.public_url)
     store.audit(None, "set_output_published", "output", output["id"],
                 detail=f"task={args.task_code} channel={args.channel} "
@@ -598,6 +600,7 @@ def cmd_set_output_retracted(store, args) -> int:
         print(f"Lỗi: đầu ra {args.channel} của {args.task_code} chưa ở "
               "trạng thái PUBLISHED.", file=sys.stderr)
         return 1
+    store.set_output_pending_choice(output["id"], False)
     store.set_output_status(output["id"], "RETRACTED")
     store.audit(None, "retract_output", "output", output["id"],
                 detail=f"task={args.task_code} channel={args.channel} "

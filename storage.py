@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS outputs (
     reject_reason TEXT,
     scheduled_at  TEXT,
     publish_target TEXT,
+    pending_choice INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL,
     UNIQUE(task_code, channel)
@@ -193,6 +194,10 @@ class Store:
         if "publish_target" not in out_columns:
             self._conn.execute(
                 "ALTER TABLE outputs ADD COLUMN publish_target TEXT")
+        if "pending_choice" not in out_columns:
+            self._conn.execute(
+                "ALTER TABLE outputs ADD COLUMN pending_choice "
+                "INTEGER NOT NULL DEFAULT 0")
 
     def close(self) -> None:
         with self._lock:
@@ -487,6 +492,17 @@ class Store:
                 "UPDATE outputs SET draft_ref = ?, updated_at = ?"
                 " WHERE id = ?",
                 (draft_ref, utcnow_iso(), output_id),
+            )
+
+    def set_output_pending_choice(self, output_id: int,
+                                  pending: bool) -> None:
+        """Flag an output whose publish/schedule choice is in
+        flight — its cards show no buttons until the choice is
+        resolved or cancelled."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE outputs SET pending_choice = ? WHERE id = ?",
+                (1 if pending else 0, output_id),
             )
 
     def latest_audit_id(self, output_id: int, action: str):

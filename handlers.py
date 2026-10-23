@@ -2000,6 +2000,11 @@ class BotApp:
         status = output["status"]
         if status in (STATUS_CANCELLED, STATUS_RETRACTED):
             return None
+        if output["pending_choice"]:
+            # A publish/schedule choice screen is open for this
+            # output (owner's rule): the card's buttons hide until
+            # the choice is resolved or cancelled.
+            return _keyboard([])
         rows = []
         oid = output["id"]
         task = self.store.get_task(output["task_code"])
@@ -2054,6 +2059,24 @@ class BotApp:
         if status == STATUS_PUBLISHED:
             rows.append([_btn("↩️ Thu hồi", f"out_retract:{oid}")])
         return _keyboard(rows)
+
+    def _set_output_pending_choice(self, chat_id, output, user, pending):
+        """Freeze (or restore) an output's cards in this chat while
+        a publish/schedule choice is in flight: the flag flips and
+        every tracked card is re-rendered — buttonless while
+        pending, with its buttons back when the choice is
+        cancelled."""
+        self.store.set_output_pending_choice(output["id"], pending)
+        updated = self.store.get_output(output["id"])
+        task = self.store.get_task(updated["task_code"])
+        if task is None:
+            return updated
+        for row in self.store.list_output_cards(updated["id"], chat_id):
+            self._edit_card(
+                chat_id, row["message_id"],
+                self.output_card_text(updated, task),
+                reply_markup=self.output_keyboard(updated, user))
+        return updated
 
     def send_output_card(self, chat_id, output, task, viewer, prefix=""):
         text = (prefix + "\n" if prefix else "") + \
@@ -2172,6 +2195,9 @@ class BotApp:
             self._output_schedule_target(
                 callback_id, user, chat_id, output, task, extra, message_id)
         elif action == "out_schabort":
+            self._output_schedule_abort(
+                callback_id, user, chat_id, output, task, message_id)
+        elif action == "out_schcancel":
             self._output_schedule_abort(
                 callback_id, user, chat_id, output, task, message_id)
         elif action == "out_unschedule":
@@ -2471,7 +2497,9 @@ class BotApp:
             # The publish target is chosen HERE, in Telegram
             # (owner's rule — never in the Muse). The request
             # is recorded only after the pick, in
-            # _output_publish_target.
+            # _output_publish_target. While the choice is open the
+            # card's own buttons hide.
+            self._set_output_pending_choice(chat_id, output, user, True)
             self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
             self._send(
                 chat_id,
@@ -2486,6 +2514,7 @@ class BotApp:
                           f"out_pubabort:{output['id']}")],
                 ]))
             return
+        self._set_output_pending_choice(chat_id, output, user, True)
         if output["scheduled_at"]:
             self.store.set_output_schedule(output["id"], None, None)
         self.store.audit(user["telegram_id"], "publish_requested",
@@ -2550,6 +2579,7 @@ class BotApp:
                          "output", output["id"],
                          detail=f"task={task['code']} channel=facebook "
                                 "stage=target_choice")
+        self._set_output_pending_choice(chat_id, output, user, False)
         self._answer(callback_id, "Đã hủy lệnh đăng.")
         self._edit_card(
             chat_id, message_id,
@@ -2592,7 +2622,9 @@ class BotApp:
             return
         if output["channel"] == "facebook":
             # Same rule as publishing: the target is chosen here,
-            # in Telegram, before the time is typed.
+            # in Telegram, before the time is typed. The card's
+            # buttons hide while the choice is open.
+            self._set_output_pending_choice(chat_id, output, user, True)
             self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
             self._send(
                 chat_id,
@@ -2607,6 +2639,7 @@ class BotApp:
                           f"out_schabort:{output['id']}")],
                 ]))
             return
+        self._set_output_pending_choice(chat_id, output, user, True)
         self.store.set_user_state(
             user["telegram_id"], "await_output_schedule_time",
             {"output_id": output["id"], "target": None})
@@ -2636,11 +2669,18 @@ class BotApp:
 
     def _output_schedule_abort(self, callback_id, user, chat_id,
                                output, task, message_id):
+        # Used both at the Facebook target-choice step
+        # (out_schabort) and at the time prompt (out_schcancel):
+        # drop any pending time-entry state and give the card its
+        # buttons back.
+        state = self.store.get_user_state(user["telegram_id"])
+        if state and state["state"] == "await_output_schedule_time":
+            self.store.clear_user_state(user["telegram_id"])
+        self._set_output_pending_choice(chat_id, output, user, False)
         self._answer(callback_id, "Đã hủy đặt lịch.")
         self._edit_card(
             chat_id, message_id,
-            f"🚫 Đã hủy đặt lịch đăng bài Facebook của việc "
-            f"{task['code']}.")
+            f"🚫 Đã hủy đặt lịch đăng của việc {task['code']}.")
 
     def _prompt_schedule_time(self, chat_id, output, task):
         """Ask for the publish time with quick-pick buttons; typing
@@ -2659,6 +2699,7 @@ class BotApp:
                  _btn("⏱ Sau 2 giờ", f"out_schquick:{oid}:120")],
                 [_btn("🌆 Tối nay 20:00", f"out_schquick:{oid}:eve"),
                  _btn("🌅 Sáng mai 8:00", f"out_schquick:{oid}:mor")],
+                [_btn("🗑 Hủy đặt lịch", f"out_schcancel:{oid}")],
             ]))
 
     def _output_schedule_quick(self, callback_id, user, chat_id,
@@ -2740,6 +2781,7 @@ class BotApp:
                     f"{_format_created(latest_pub['updated_at'])} (việc "
                     f"{latest_pub['task_code']}) — bài này đăng tiếp "
                     "trong vòng 1 giờ, dễ loãng tương tác.")
+        self.store.set_output_pending_choice(output["id"], False)
         self.store.set_output_schedule(output["id"], when_utc, target)
         self.store.audit(
             user["telegram_id"], "schedule_set", "output", output["id"],

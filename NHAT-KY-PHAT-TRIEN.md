@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Ẩn nút trên thẻ khi màn chọn nơi đăng/giờ đăng đang mở, Hủy thì hiện lại
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án chỉ rõ qua ảnh chụp: bấm Đăng/Đặt lịch chuyển sang màn chọn nơi đăng rồi mà thẻ cũ vẫn còn nguyên nút, dễ bấm nhầm/bấm trùng. Nay khi màn chọn nơi đăng (Facebook) hoặc màn chọn giờ đăng đang mở, các thẻ kênh của đầu ra đó tự **ẩn toàn bộ nút** (cờ `pending_choice`); bấm **Hủy** ở bước chọn (Hủy đăng / Hủy đặt lịch — màn chọn giờ cũng có thêm nút hủy) thì thẻ **hiện lại đúng bộ nút trước**. Chọn xong nơi đăng thì thẻ giữ trạng thái ẩn trong lúc Muse đăng thật, đăng xong thẻ mới (đã đăng) thay thế; đặt lịch xong thẻ mới hiện kèm dòng 🕐 Lịch đăng như đã chốt. Đăng ngay ở kênh không có bước chọn (Website/Instagram) cũng ẩn nút ngay khi nhận lệnh, tránh bấm trùng hai lệnh đăng.
+- **Trạng thái:** Đã xong. Kiểm thử 134/134 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Thông báo tức thì khi Chốt + chọn giờ đăng nhanh + cảnh báo cả bài vừa đăng
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Ba góp ý của chủ dự án qua ảnh chụp thẻ CV-0009: (1) bấm Chốt ở cuối wizard phải chờ (tải ảnh) mới thấy phản hồi — nay ngay khi bấm, bot gửi thêm một thông báo nhỏ "⏳ Đang gửi cho Muse…" trong cuộc trò chuyện trước khi xử lý, thông báo hoàn tất vẫn giữ nguyên. (2) Đặt lịch đăng nay có nút chọn giờ nhanh — ⏱ Sau 1 giờ / Sau 2 giờ / 🌆 Tối nay 20:00 / 🌅 Sáng mai 8:00 — bên cạnh cách nhắn giờ tự do; cảnh báo "sát nhau dưới 1 giờ" áp dụng thêm với bài VỪA ĐĂNG trên cùng kênh (trước đây chỉ tính các bài đã đặt lịch). (3) Việc sửa lịch và đăng ngay đã có sẵn trên thẻ đã đặt lịch (🕐 Đổi lịch / 🚀 Đăng — đăng ngay tự hủy lịch).
