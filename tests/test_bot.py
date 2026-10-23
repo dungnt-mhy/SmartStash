@@ -20,6 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import botctl
 import roles
+import handlers
 from handlers import BotApp
 from storage import Store
 
@@ -43,6 +44,16 @@ class FakeTelegraph:
     def publish(self, key, title, nodes):
         self.calls.append({"key": key, "title": title, "nodes": nodes})
         return "https://telegra.ph/trang-nhap-mau-10-23"
+
+
+class FakeImageHost:
+    """Returns example URLs instead of uploading anywhere."""
+
+    def __init__(self, cache_file):
+        self.cache_file = cache_file
+
+    def upload(self, file_path, dest_path):
+        return "https://img.example/" + Path(file_path).name
 
 
 class FakeApi:
@@ -726,6 +737,59 @@ class BotTestCase(unittest.TestCase):
             "Thẻ kênh Facebook" in t and "Caption chưa hay" in t
             for t in creator_texts))
 
+    def test_reviewer_can_return_draft_channel_with_revision_note(self):
+        # The owner asked for a "return with revision request" button
+        # that also works on a DRAFT channel card (before formal
+        # submit): the reviewer types what must be fixed, and the
+        # creator sees that exact note on the returned card.
+        task = self.create_contributor_task()
+        code = task["code"]
+        fb = self.outputs_by_channel(code)["facebook"]
+        self.store.set_output_draft(
+            fb["id"], "https://telegra.ph/ban-nhap-fb")
+        editor = self.store.get_user(EDITOR)
+        keyboard = self.app.output_keyboard(
+            self.store.get_output(fb["id"]), editor)
+        callbacks = [
+            btn["callback_data"]
+            for row in keyboard["inline_keyboard"] for btn in row]
+        self.assertIn(f"out_reject:{fb['id']}", callbacks)
+        self.app.handle_update(
+            callback_update(EDITOR, f"out_reject:{fb['id']}"))
+        prompts = self.api.texts_to(EDITOR)
+        self.assertTrue(any("NỘI DUNG CẦN SỬA" in t for t in prompts))
+        self.app.handle_update(message_update(
+            EDITOR, text="Đổi ảnh bìa, rút ngắn caption"))
+        output = self.store.get_output(fb["id"])
+        self.assertEqual(output["status"], "REJECTED")
+        self.assertEqual(
+            output["reject_reason"], "Đổi ảnh bìa, rút ngắn caption")
+        creator_texts = self.api.texts_to(CONTRIBUTOR)
+        self.assertTrue(any(
+            "Yêu cầu chỉnh sửa: Đổi ảnh bìa, rút ngắn caption" in t
+            for t in creator_texts))
+
+    def test_hide_and_show_main_keyboard(self):
+        self.api.sent.clear()
+        self.app.handle_update(
+            message_update(EDITOR, text=handlers.BTN_HIDE_KB))
+        markups = [m.get("reply_markup") for m in self.api.sent
+                   if m["chat_id"] == EDITOR]
+        self.assertIn({"remove_keyboard": True}, markups)
+        self.api.sent.clear()
+        self.app.handle_update(message_update(EDITOR, text="/menu"))
+        markups = [m.get("reply_markup") for m in self.api.sent
+                   if m["chat_id"] == EDITOR and m.get("reply_markup")]
+        keyboards = [m for m in markups if "keyboard" in m]
+        self.assertTrue(keyboards)
+        labels = [btn["text"] for row in keyboards[0]["keyboard"]
+                  for btn in row]
+        self.assertIn(handlers.BTN_NEW_TASK, labels)
+        self.assertIn(handlers.BTN_HIDE_KB, labels)
+        commands = [c["command"]
+                    for c in handlers.commands_for_role(roles.ROLE_EDITOR)]
+        self.assertIn("menu", commands)
+
     def test_attach_output_draft_stores_ref_and_sends_card(self):
         task = self.create_contributor_task()
         code = task["code"]
@@ -757,8 +821,10 @@ class BotTestCase(unittest.TestCase):
     def _attach_with_fake_telegraph(self, code, channel, md_path):
         original_client = botctl.build_client_or_warn
         original_tg = botctl.Telegraph
+        original_host = botctl.ImageHost
         botctl.build_client_or_warn = lambda no_notify: self.api
         botctl.Telegraph = FakeTelegraph
+        botctl.ImageHost = FakeImageHost
         FakeTelegraph.instances.clear()
         self.api.sent.clear()
         try:
@@ -769,6 +835,7 @@ class BotTestCase(unittest.TestCase):
         finally:
             botctl.build_client_or_warn = original_client
             botctl.Telegraph = original_tg
+            botctl.ImageHost = original_host
 
     def test_attach_output_draft_with_file_publishes_link(self):
         # The owner wants ONE tidy link per draft on the channel card:
@@ -796,6 +863,9 @@ class BotTestCase(unittest.TestCase):
             body = json.dumps(calls[0]["nodes"], ensure_ascii=False)
             self.assertIn("Bài viết hay về hội thảo", body)
             self.assertIn("Nội dung chính của bài viết", body)
+            # The task's material photos are embedded in the page.
+            self.assertIn('"figure"', body)
+            self.assertIn("https://img.example/", body)
             texts = self.api.texts_to(CONTRIBUTOR)
             self.assertEqual(len(texts), 1)
             self.assertIn("https://telegra.ph/trang-nhap-mau-10-23",

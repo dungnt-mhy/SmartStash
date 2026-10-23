@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from handlers import BotApp
+from image_host import ImageHost
 from storage import Store
 from telegraph import Telegraph
 
@@ -293,16 +294,26 @@ def _draft_page_title(task, output, md: str) -> str:
     return f"{task['code']} · {label} — {base}"[:250]
 
 
-def _draft_telegraph_nodes(task, output, md: str):
+def _figure(url: str):
+    return {"tag": "figure",
+            "children": [{"tag": "img", "attrs": {"src": url}}]}
+
+
+def _draft_telegraph_nodes(task, output, md: str, image_urls=()):
     """Build the telegra.ph page body for one channel draft. The owner
     reviews drafts through ONE tidy link per channel card, so the page
-    carries the whole formatted draft: article text for website /
-    facebook, slide texts + caption for instagram."""
+    carries the whole formatted draft like the real post: article text
+    + photos for website / facebook, per-slide photo + text + caption
+    for instagram."""
     channel = output["channel"]
     if channel == "instagram":
         nodes = []
         for index, lines in enumerate(_parse_ig_slides(md), start=1):
             nodes.append({"tag": "h4", "children": [f"Slide {index}"]})
+            if image_urls:
+                url = image_urls[index - 1] \
+                    if index - 1 < len(image_urls) else image_urls[-1]
+                nodes.append(_figure(url))
             for line in lines:
                 nodes.append({"tag": "p",
                               "children": _telegraph_inline(line)})
@@ -322,7 +333,32 @@ def _draft_telegraph_nodes(task, output, md: str):
     elif channel == "facebook":
         drops = ("Ảnh nổi bật", "Hoặc đăng", "Ảnh bìa đề xuất",
                  "**Ảnh nổi bật", "**Hoặc đăng", "**Ảnh bìa đề xuất")
-    return _md_nodes_generic(text.split("\n"), drops)
+    nodes = _md_nodes_generic(text.split("\n"), drops)
+    if image_urls:
+        figures = [_figure(url) for url in image_urls]
+        if channel == "facebook":
+            # Like a real post: text first, photos right before the
+            # closing hashtag line when there is one.
+            insert_at = len(nodes)
+            if nodes and nodes[-1]["tag"] == "p":
+                last_text = "".join(
+                    child for child in nodes[-1]["children"]
+                    if isinstance(child, str))
+                if last_text.lstrip().startswith("#"):
+                    insert_at = len(nodes) - 1
+            nodes[insert_at:insert_at] = figures
+        else:
+            # Website: photos land after the opening (title + sapo),
+            # i.e. after the second paragraph, like the real article.
+            paragraphs_seen, insert_at = 0, len(nodes)
+            for position, node in enumerate(nodes):
+                if node["tag"] == "p":
+                    paragraphs_seen += 1
+                    if paragraphs_seen == 2:
+                        insert_at = position + 1
+                        break
+            nodes[insert_at:insert_at] = figures
+    return nodes
 
 
 
@@ -472,12 +508,27 @@ def cmd_attach_output_draft(store, args) -> int:
         except OSError as exc:
             print(f"Lỗi: không đọc được file nháp: {exc}", file=sys.stderr)
             return 1
+        # Photos: host the task's material photos and embed them in
+        # the page so the preview reads like the real post. A failed
+        # upload only drops that photo, never the page itself.
+        image_urls = []
+        files_dir = DEFAULT_DATA_DIR / "files" / task["code"]
+        photos = sorted(files_dir.glob("*")) if files_dir.is_dir() else []
+        if photos:
+            host = ImageHost(DEFAULT_DATA_DIR / "image-host.json")
+            for photo in photos:
+                try:
+                    image_urls.append(host.upload(
+                        photo, f"draft-media/{task['code']}/{photo.name}"))
+                except Exception as exc:
+                    print(f"Cảnh báo: không tải được ảnh {photo.name} "
+                          f"lên kho ảnh: {exc}", file=sys.stderr)
         publisher = Telegraph(DEFAULT_DATA_DIR / "telegraph.json")
         try:
             ref = publisher.publish(
                 f"{task['code']}:{output['channel']}",
                 _draft_page_title(task, output, md),
-                _draft_telegraph_nodes(task, output, md))
+                _draft_telegraph_nodes(task, output, md, image_urls))
         except Exception as exc:
             print(f"Lỗi: không đăng được trang nháp lên telegra.ph: "
                   f"{exc}", file=sys.stderr)

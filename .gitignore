@@ -1,5 +1,6 @@
 data/bot.db
 data/telegraph.json
+data/image-host.json
 data/files/*
 !data/files/.gitkeep
 data/backup-*/

@@ -110,6 +110,7 @@ BTN_PENDING = "⏳ Chờ duyệt"
 BTN_STATS = "📊 Thống kê"
 BTN_USERS = "👥 Người dùng"
 BTN_HELP = "❓ Trợ giúp"
+BTN_HIDE_KB = "🙈 Ẩn bàn phím"
 
 
 def main_keyboard(user):
@@ -117,8 +118,9 @@ def main_keyboard(user):
     screen). Reviewers get the review queue and statistics; Admin and
     Phó Admin also get user management. Pending users only get help."""
     help_btn = {"text": BTN_HELP}
+    hide_row = [{"text": BTN_HIDE_KB}]
     if user is None or user["role"] is None:
-        rows = [[help_btn]]
+        rows = [[help_btn], hide_row]
     elif roles.can_review(user["role"]):
         rows = [
             [{"text": BTN_NEW_TASK}, {"text": BTN_PENDING}],
@@ -128,10 +130,12 @@ def main_keyboard(user):
             rows.append([{"text": BTN_USERS}, help_btn])
         else:
             rows.append([help_btn])
+        rows.append(hide_row)
     else:
         rows = [
             [{"text": BTN_NEW_TASK}, {"text": BTN_MY_TASKS}],
             [help_btn],
+            hide_row,
         ]
     return {
         "keyboard": rows,
@@ -173,6 +177,7 @@ def wizard_hint_keyboard():
 #: command is still authorised server-side.
 BASE_COMMANDS = [
     {"command": "start", "description": "Bắt đầu / đăng ký"},
+    {"command": "menu", "description": "Hiện bàn phím chính"},
     {"command": "giaoviec", "description": "Giao việc mới (từng bước)"},
     {"command": "viec", "description": "Danh sách việc"},
     {"command": "vaitro", "description": "Danh sách vai trò"},
@@ -615,6 +620,7 @@ class BotApp:
     def handle_command(self, command, user, tg_user, chat_id):
         handler = {
             "/start": self._cmd_start,
+            "/menu": self._cmd_menu,
             "/vaitro": self._cmd_vaitro,
             "/danhsach": self._cmd_danhsach,
             "/capquyen": self._cmd_capquyen,
@@ -633,6 +639,20 @@ class BotApp:
 
     def _cmd_help(self, user, tg_user, chat_id):
         self._send(chat_id, HELP_TEXT)
+
+    def _cmd_menu(self, user, tg_user, chat_id):
+        """Show the main reply keyboard again after it was hidden."""
+        self._send_main(
+            chat_id,
+            "⌨️ Đây là bàn phím chính của bạn. Khi muốn ẩn, bấm "
+            "🙈 Ẩn bàn phím ở hàng dưới cùng.",
+            user)
+
+    def _hide_keyboard(self, chat_id):
+        self._send(
+            chat_id,
+            "Đã ẩn bàn phím. Khi cần hiện lại, gõ /menu.",
+            reply_markup={"remove_keyboard": True})
 
     def _cmd_start(self, user, tg_user, chat_id):
         if user is None:
@@ -835,6 +855,8 @@ class BotApp:
             self._cmd_danhsach(user, tg_user, chat_id)
         elif text == BTN_HELP:
             self._cmd_help(user, tg_user, chat_id)
+        elif text == BTN_HIDE_KB:
+            self._hide_keyboard(chat_id)
         else:
             return False
         return True
@@ -1652,7 +1674,7 @@ class BotApp:
         if output["public_url"]:
             lines.append(f"Link đã đăng: {output['public_url']}")
         if output["status"] == STATUS_REJECTED and output["reject_reason"]:
-            lines.append(f"Lý do trả lại: {output['reject_reason']}")
+            lines.append(f"✏️ Yêu cầu chỉnh sửa: {output['reject_reason']}")
         return "\n".join(lines)
 
     def output_keyboard(self, output, viewer):
@@ -1677,8 +1699,12 @@ class BotApp:
         if roles.can_review(viewer["role"]) and status == STATUS_PENDING:
             rows.append([
                 _btn("✅ Duyệt", f"out_approve:{oid}"),
-                _btn("↩️ Trả lại", f"out_reject:{oid}"),
+                _btn("↩️ Trả lại kèm yêu cầu sửa", f"out_reject:{oid}"),
             ])
+        if roles.can_review(viewer["role"]) and status == STATUS_DRAFT \
+                and output["draft_ref"]:
+            rows.append([
+                _btn("↩️ Trả lại kèm yêu cầu sửa", f"out_reject:{oid}")])
         if status == STATUS_APPROVED_WAITING:
             rows.append([_btn("🚀 Đăng", f"out_publish:{oid}")])
         if status == STATUS_PUBLISHED:
@@ -1840,21 +1866,29 @@ class BotApp:
             self._answer(callback_id, "⛔ Bạn không có quyền trả lại.",
                          show_alert=True)
             return
-        if output["status"] != STATUS_PENDING:
-            self._answer(callback_id, "Thẻ kênh này chưa được gửi duyệt.",
+        if output["status"] not in (STATUS_PENDING, STATUS_DRAFT):
+            self._answer(callback_id,
+                         "Thẻ kênh này không ở trạng thái trả lại được.",
+                         show_alert=True)
+            return
+        if output["status"] == STATUS_DRAFT and not output["draft_ref"]:
+            self._answer(callback_id,
+                         "Kênh này chưa có bản nháp để trả lại.",
                          show_alert=True)
             return
         self.store.set_user_state(
             user["telegram_id"], "await_output_reject_reason",
             {"output_id": output["id"]},
         )
-        self._answer(callback_id, "Hãy nhắn lý do trả lại.")
+        self._answer(callback_id, "Hãy nhắn nội dung cần chỉnh sửa.")
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])
         self._send(
             chat_id,
-            f"↩️ Trả lại thẻ kênh {label} của việc {task['code']}: "
-            "hãy nhắn lý do trả lại trong tin nhắn tiếp theo.",
+            f"✏️ Trả lại thẻ kênh {label} của việc {task['code']} kèm "
+            "yêu cầu chỉnh sửa: hãy nhắn NỘI DUNG CẦN SỬA trong tin "
+            "nhắn tiếp theo — người tạo sẽ nhận được nguyên văn "
+            "yêu cầu này trên thẻ kênh.",
         )
 
     def _apply_output_reject_reason(self, user, chat_id, reason, payload):
@@ -1869,8 +1903,9 @@ class BotApp:
         if user is None or not roles.can_review(user["role"]):
             self._send(chat_id, "⛔ Bạn không còn quyền trả lại.")
             return
-        if output["status"] != STATUS_PENDING:
-            self._send(chat_id, "Thẻ kênh này không còn ở trạng thái chờ duyệt.")
+        if output["status"] not in (STATUS_PENDING, STATUS_DRAFT):
+            self._send(chat_id,
+                       "Thẻ kênh này không còn ở trạng thái trả lại được.")
             return
         self.store.set_output_status(
             output["id"], STATUS_REJECTED, reject_reason=reason)
@@ -1883,14 +1918,14 @@ class BotApp:
             "label", output["channel"])
         self._send(
             chat_id,
-            f"↩️ Đã trả lại thẻ kênh {label} của việc {task['code']} "
-            f"với lý do: {reason}",
+            f"↩️ Đã trả lại thẻ kênh {label} của việc {task['code']}. "
+            f"✏️ Yêu cầu chỉnh sửa: {reason}",
         )
         updated = self.store.get_output(output["id"])
         self._notify_output_creator(
             updated, task,
             prefix=f"↩️ Thẻ kênh {label} của bạn bị trả lại. "
-                   f"Lý do: {reason}")
+                   f"✏️ Yêu cầu chỉnh sửa: {reason}")
 
     def _output_publish(self, callback_id, user, chat_id, output, task):
         if not roles.can_publish(user):

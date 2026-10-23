@@ -139,6 +139,10 @@ class TelegramClient:
 
     # ------------------------------------------------------- convenience api
     def send_message(self, chat_id, text, reply_markup=None, **kwargs):
+        # The owner does not want link-preview boxes (big photo cards)
+        # cluttering the chat under draft links: previews are disabled
+        # for every bot message; the link itself still opens the page.
+        kwargs.setdefault("link_preview_options", {"is_disabled": True})
         return self.call(
             "sendMessage", chat_id=chat_id, text=text,
             reply_markup=reply_markup, **kwargs,
