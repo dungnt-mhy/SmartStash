@@ -618,7 +618,7 @@ class BotApp:
             rows.append([_btn("📋 Thẻ các kênh", f"task_outputs:{code}")])
         bottom = []
         if can_toggle:
-            bottom.append(_btn("✅ Chốt! Gửi cho Muse",
+            bottom.append(_btn("🚀 Chốt! Gửi cho Muse",
                                f"task_dest_ok:{code}"))
         if status in (STATUS_DRAFT, STATUS_PENDING, STATUS_REJECTED) and (
             is_creator or is_admin
@@ -1071,7 +1071,7 @@ class BotApp:
             rows.append([_btn("✅ Chọn tất cả", "wiz_dest_all")])
         rows.append([_btn("✏️ Sửa nội dung gợi ý", "wiz_hint")])
         rows.append([
-            _btn("✅ Chốt! Gửi cho Muse", "wiz_create"),
+            _btn("🚀 Chốt! Gửi cho Muse", "wiz_create"),
             _btn("🗑 Huỷ", "wiz_cancel"),
         ])
         return _keyboard(rows)
@@ -1087,7 +1087,9 @@ class BotApp:
         self._send(
             chat_id,
             "Bước 3/3: Chọn nơi đăng cho việc này, rồi bấm "
-            "✅ Chốt! Gửi cho Muse.\n" + hint_line,
+            "🚀 Chốt! Gửi cho Muse.\n" + hint_line
+            + "\n📌 Mặc định đang chọn cả 3 nơi đăng — chạm vào "
+              "từng kênh để bỏ chọn nếu không cần.",
             reply_markup=self._wizard_channels_keyboard(payload),
         )
 

@@ -462,7 +462,7 @@ class BotTestCase(unittest.TestCase):
         self.assertIn("✅ Website", labels)
         self.assertEqual(
             [b["text"] for b in rows[-1]],
-            ["✅ Chốt! Gửi cho Muse", "🗑 Thu hồi việc"])
+            ["🚀 Chốt! Gửi cho Muse", "🗑 Thu hồi việc"])
         # OK commits and notifies that the order went to Muse.
         self.api.sent.clear()
         self.app.handle_update(

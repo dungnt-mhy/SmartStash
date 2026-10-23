@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Bước 3 wizard: thêm ghi chú mặc định + đổi icon nút chốt thành 🚀
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo góp ý của chủ dự án khi test: tin Bước 3/3 thêm dòng ghi chú "📌 Mặc định đang chọn cả 3 nơi đăng — chạm vào từng kênh để bỏ chọn nếu không cần."; nút chốt đổi icon ✅ → **🚀** ("🚀 Chốt! Gửi cho Muse") ở cả Bước 3 wizard lẫn thẻ việc, để phân biệt với dấu ✅ "đã chọn" trên các nút kênh.
+- **Trạng thái:** Đã xong. Kiểm thử 91/91 đạt, bot đã khởi động lại. (Cùng buổi: máy chủ bị thay mới làm mất đăng ký dịch vụ systemd — đã cài lại unit + EnvironmentFile từ bản mẫu trong repo, dữ liệu bot nguyên vẹn, bot chạy lại từ 11:42.)
+
 ### 2026-10-23 — Sửa lỗi nút "Huỷ giao việc" bấm không ăn (bàn phím cũ sau khi đổi tên nút)
 - **Hạng mục:** Sửa lỗi
 - **Thay đổi:** Chủ dự án phản ánh nút "❌ Huỷ giao việc" cứ hiện mãi, bấm không ăn. Nguyên nhân: nút đã được đổi tên thành "🗑 Huỷ giao việc" (icon thùng rác) nhưng Telegram giữ bàn phím cũ trên máy người dùng — nhãn cũ bấm vào không khớp nhãn mới nên bot không nhận. Đã thêm **nhãn tương thích ngược** cho nút Huỷ wizard (nhãn ❌ cũ vẫn hủy được, đồng thời khôi phục bàn phím chính); các nút bị gỡ khỏi bàn phím chính (Người dùng/Thống kê/Tất cả việc) vốn vẫn còn đường xử lý nên không lỗi tương tự. Bàn phím Bước 1 của wizard gộp [Xong | Huỷ] vào 1 hàng cho gọn.
