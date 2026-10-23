@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Admin bỏ qua duyệt với việc của mình · chốt nơi đăng Facebook ngay trong Telegram · hết trùng nút Đăng
+- **Hạng mục:** Quy trình duyệt/đăng
+- **Thay đổi:** Ba phản ánh liên tiếp của chủ dự án qua ảnh chụp CV-0006: (1) "Admin thì cần gì gửi duyệt, duyệt" — thẻ kênh của việc do chính Admin tạo, khi đã có nháp, hiện thẳng nút 🚀 Đăng thay cho 📤 Gửi duyệt; bấm Đăng là tự nhảy qua khâu duyệt (audit approve_output auto=admin_own) rồi đi tiếp. (2) "Phải chốt ở Telegram chứ" — bấm Đăng ở kênh Facebook nay hiện câu hỏi ngay trong Telegram: [👤 Trang cá nhân] / [📄 Fanpage Minhy]; chọn xong mới ghi lệnh đăng (audit publish_requested kèm target=profile/page) và tin chọn nơi đăng tự sửa thành tin nhận lệnh duy nhất. Bộ theo dõi nền cũng chuyển target này cho Muse khi đăng. (3) "Đã duyệt rồi, xong lại hiện đăng, bên dưới cũng có đăng" — nguyên nhân: thẻ gốc tự sửa tại chỗ thành chờ đăng (có nút Đăng) VÀ bot gửi thêm một thẻ thông báo duyệt nữa (cũng có nút Đăng). Đã bỏ thẻ thông báo khi người duyệt chính là người tạo (thẻ đã bấm tự cập nhật là đủ); duyệt việc của người khác vẫn báo cho người tạo như cũ.
+- **Trạng thái:** Đã xong. Kiểm thử 98/98 đạt (thêm 3 test cho cả ba hành vi), bot đã khởi động lại.
+
 ### 2026-10-23 — Luồng Đăng bài: một nút Đăng, một thông báo thành công kèm link
 - **Hạng mục:** Quy trình đăng bài / trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án phản ánh bấm Đăng thì hiện 2 lần "đăng" và yêu cầu "thông báo đã đăng thành công và gửi link bài". Kiểm tra tận gốc: nút 🚀 Đăng cũ tự lật trạng thái sang PUBLISHED và báo "đã đăng" dù CHƯA có bài thật và không có link (CV-0005 Facebook bị lật oan lúc 13:35, public_url trống — đã đưa về APPROVED_WAITING kèm audit `revert_hollow_publish`). Nay: nút Đăng chỉ ghi nhận lệnh đăng (audit `publish_requested`) + đúng 1 tin nhận lệnh; Muse đăng thật rồi hoàn tất bằng `botctl set-output-published <link>` — lệnh này nay gửi đúng 1 thông báo "✅ Đã đăng thành công" kèm thẻ kênh chứa link bài cho người tạo + quản trị (đã khử trùng người nhận).

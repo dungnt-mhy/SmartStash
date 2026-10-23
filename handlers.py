@@ -46,6 +46,14 @@ DESTINATION_LABELS = {key: f"{icon} {name}"
 DESTINATION_NAMES = {key: name for key, _icon, name in DESTINATIONS}
 
 
+#: Facebook publish targets, picked on the channel card in
+#: Telegram (owner's rule: never decided in the Muse).
+FB_PUBLISH_TARGETS = {
+    "profile": "👤 Trang cá nhân Nguyễn Trọng Minh Huy",
+    "page": "📄 Fanpage Minhy",
+}
+
+
 def _dest_btn_text(key, chosen):
     """Channel-picker button text (owner's model): a chosen channel
     shows its own icon + name; tapping it swaps the icon for ❌.
@@ -1304,12 +1312,15 @@ class BotApp:
             self._cb_task_outputs(
                 callback_id, user, chat_id, data.split(":", 1)[1])
         elif data.startswith("out_"):
-            action, _sep, raw_id = data.partition(":")
+            parts = data.split(":")
+            action = parts[0]
             try:
-                output_id = int(raw_id)
-            except ValueError:
+                output_id = int(parts[1])
+            except (ValueError, IndexError):
                 output_id = None
-            self._cb_output(callback_id, user, chat_id, action, output_id)
+            extra = parts[2] if len(parts) > 2 else None
+            self._cb_output(callback_id, user, chat_id, action, output_id,
+                            extra=extra, message_id=message_id)
         elif data.startswith("task_dest_all:"):
             self._task_dest_all(callback_id, user, chat_id,
                                 data.split(":", 1)[1])
@@ -1913,7 +1924,13 @@ class BotApp:
         is_creator = task is not None and \
             viewer["telegram_id"] == task["creator_id"]
         if is_creator and status in (STATUS_DRAFT, STATUS_REJECTED):
-            rows.append([_btn("📤 Gửi duyệt", f"out_submit:{oid}")])
+            if viewer["role"] == roles.ROLE_ADMIN and output["draft_ref"]:
+                # Owner's rule: an Admin working on their OWN task
+                # needs no Gửi duyệt/Duyệt — the card goes straight
+                # to Đăng.
+                rows.append([_btn("🚀 Đăng", f"out_publish:{oid}")])
+            else:
+                rows.append([_btn("📤 Gửi duyệt", f"out_submit:{oid}")])
         if roles.can_review(viewer["role"]) and status == STATUS_PENDING:
             # Owner's review row: Duyệt · Trả lại · Hủy bài, one row.
             rows.append([
@@ -1981,7 +1998,8 @@ class BotApp:
             self.send_output_card(chat_id, output, task, user)
 
     # ---------------------------------------------------- output callbacks
-    def _cb_output(self, callback_id, user, chat_id, action, output_id):
+    def _cb_output(self, callback_id, user, chat_id, action, output_id,
+                   extra=None, message_id=None):
         output = self.store.get_output(output_id) \
             if output_id is not None else None
         if output is None:
@@ -2008,6 +2026,9 @@ class BotApp:
             self._output_cancel(callback_id, user, chat_id, output, task)
         elif action == "out_publish":
             self._output_publish(callback_id, user, chat_id, output, task)
+        elif action == "out_pubto":
+            self._output_publish_target(
+                callback_id, user, chat_id, output, task, extra, message_id)
         elif action == "out_retract":
             self._output_retract_start(
                 callback_id, user, chat_id, output, task)
@@ -2077,10 +2098,11 @@ class BotApp:
         updated = self.store.get_output(output["id"])
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])
-        self._notify_output_creator(
-            updated, task,
-            prefix=f"✅ Thẻ kênh {label} của bạn đã được duyệt, "
-                   "đang chờ đăng:")
+        if task["creator_id"] != user["telegram_id"]:
+            self._notify_output_creator(
+                updated, task,
+                prefix=f"✅ Thẻ kênh {label} của bạn đã được duyệt, "
+                       "đang chờ đăng:")
 
     def _output_reject_start(self, callback_id, user, chat_id, output, task):
         if not roles.can_review(user["role"]):
@@ -2192,6 +2214,27 @@ class BotApp:
             self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
                          show_alert=True)
             return
+        # Owner's rule: an Admin publishing their OWN task skips
+        # the review hop entirely — a draft-ready DRAFT/REJECTED
+        # output moves straight to APPROVED_WAITING on this click.
+        if output["status"] in (STATUS_DRAFT, STATUS_REJECTED):
+            if (user["telegram_id"] == task["creator_id"]
+                    and user["role"] == roles.ROLE_ADMIN
+                    and output["draft_ref"]):
+                self.store.set_output_status(
+                    output["id"], STATUS_APPROVED_WAITING)
+                self.store.audit(
+                    user["telegram_id"], "approve_output", "output",
+                    output["id"],
+                    detail=f"task={task['code']} "
+                           f"channel={output['channel']} auto=admin_own")
+                self.store.sync_task_status_from_outputs(task["code"])
+                output = self.store.get_output(output["id"])
+            else:
+                self._answer(callback_id,
+                             "Thẻ kênh này chưa ở trạng thái chờ đăng.",
+                             show_alert=True)
+                return
         if output["status"] != STATUS_APPROVED_WAITING:
             self._answer(callback_id,
                          "Thẻ kênh này chưa ở trạng thái chờ đăng.",
@@ -2203,6 +2246,25 @@ class BotApp:
         # sends the ONE success notification carrying the article
         # link. Flipping to PUBLISHED here claimed a post that did
         # not exist (no link) and spawned a second "đăng" card.
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        if output["channel"] == "facebook":
+            # The publish target is chosen HERE, in Telegram
+            # (owner's rule — never in the Muse). The request
+            # is recorded only after the pick, in
+            # _output_publish_target.
+            self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
+            self._send(
+                chat_id,
+                f"📘 Đăng bài Facebook của việc {task['code']} "
+                "lên đâu?",
+                reply_markup=_keyboard([
+                    [_btn("👤 Trang cá nhân",
+                          f"out_pubto:{output['id']}:profile")],
+                    [_btn("📄 Fanpage Minhy",
+                          f"out_pubto:{output['id']}:page")],
+                ]))
+            return
         self.store.audit(user["telegram_id"], "publish_requested",
                          "output", output["id"],
                          detail=f"task={task['code']} "
@@ -2210,12 +2272,40 @@ class BotApp:
         self._answer(callback_id,
                      "⏳ Đã nhận lệnh đăng — Muse sẽ đăng ngay và "
                      "gửi link bài khi xong.")
-        label = CHANNELS.get(output["channel"], {}).get(
-            "label", output["channel"])
         self._send(chat_id,
                    f"⏳ Đã nhận lệnh đăng thẻ kênh {label} của việc "
                    f"{task['code']}. Muse đang đăng — link bài sẽ "
                    "được gửi ngay khi đăng xong.")
+
+    def _output_publish_target(self, callback_id, user, chat_id,
+                               output, task, target, message_id):
+        """Second half of the Facebook publish click: record the
+        request WITH its target and turn the choice message into
+        the single acknowledgement."""
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["channel"] != "facebook" \
+                or target not in FB_PUBLISH_TARGETS:
+            self._answer(callback_id, "Thao tác không hợp lệ.")
+            return
+        if output["status"] != STATUS_APPROVED_WAITING:
+            self._answer(callback_id,
+                         "Thẻ kênh này chưa ở trạng thái chờ đăng.",
+                         show_alert=True)
+            return
+        self.store.audit(user["telegram_id"], "publish_requested",
+                         "output", output["id"],
+                         detail=f"task={task['code']} "
+                                f"channel=facebook target={target}")
+        label = FB_PUBLISH_TARGETS[target]
+        self._answer(callback_id, f"Đã chốt đăng lên {label}")
+        self._edit_card(
+            chat_id, message_id,
+            f"⏳ Đã nhận lệnh đăng bài Facebook của việc "
+            f"{task['code']} lên {label}. Muse đang đăng — link "
+            "bài sẽ được gửi ngay khi đăng xong.")
 
     def _output_retract_start(self, callback_id, user, chat_id, output, task):
         if output["status"] != STATUS_PUBLISHED:

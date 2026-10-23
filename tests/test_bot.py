@@ -324,6 +324,96 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(
             self.store.get_output(output["id"])["status"], "PUBLISHED")
 
+    def create_admin_task(self):
+        """Admin sends a photo, then a text hint to finalise."""
+        self.app.handle_update(message_update(ADMIN, photo=PHOTO))
+        self.app.handle_update(message_update(
+            ADMIN, text="Việc của admin tự làm"))
+        tasks = [t for t in self.store.list_tasks()
+                 if t["creator_id"] == ADMIN]
+        self.assertEqual(len(tasks), 1)
+        return tasks[0]
+
+    def test_admin_own_card_skips_review_straight_to_publish(self):
+        # Owner's rule: an Admin on their OWN task needs no
+        # Gửi duyệt/Duyệt — the draft-ready card shows Đăng, and
+        # the Facebook target is picked in Telegram.
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        admin = self.store.get_user(ADMIN)
+        markup = self.app.output_keyboard(
+            self.store.get_output(fb["id"]), admin)
+        data = [b["callback_data"] for row in markup["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_publish:{fb['id']}", data)
+        self.assertNotIn(f"out_submit:{fb['id']}", data)
+        # Click Đăng: auto-advances past review, then asks the target.
+        self.api.sent.clear()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{fb['id']}"))
+        self.assertEqual(
+            self.store.get_output(fb["id"])["status"], "APPROVED_WAITING")
+        auto = self.store.audit_entries("approve_output")
+        self.assertTrue(any("auto=admin_own" in (a["detail"] or "")
+                            for a in auto))
+        choice = [m for m in self.api.sent
+                  if "lên đâu?" in (m.get("text") or "")]
+        self.assertEqual(len(choice), 1)
+        # Pick the Fanpage: the request is recorded WITH its target
+        # and the choice message becomes the single acknowledgement.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubto:{fb['id']}:page"))
+        reqs = self.store.audit_entries("publish_requested")
+        self.assertEqual(len(reqs), 1)
+        self.assertIn("target=page", reqs[0]["detail"])
+        self.assertTrue(any(
+            "Fanpage Minhy" in (e.get("text") or "")
+            for e in self.api.edits))
+
+    def test_admin_own_website_publish_records_request_directly(self):
+        task = self.create_admin_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(web["id"], "https://example.com/d/web")
+        self.api.sent.clear()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{web['id']}"))
+        self.assertEqual(
+            self.store.get_output(web["id"])["status"], "APPROVED_WAITING")
+        self.assertEqual(
+            len(self.store.audit_entries("publish_requested")), 1)
+        self.assertFalse(any(
+            "lên đâu?" in t for t in self.api.texts_to(ADMIN)))
+
+    def test_self_approve_sends_no_second_card(self):
+        # Owner's report: approving your own output sent a second
+        # card, so two Đăng buttons showed. The tapped card already
+        # refreshes in place — no new card may be sent. Approving
+        # SOMEONE ELSE's output still notifies the creator.
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        self.store.set_output_status(fb["id"], "PENDING")
+        self.api.sent.clear()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_approve:{fb['id']}"))
+        self.assertEqual(
+            self.store.get_output(fb["id"])["status"], "APPROVED_WAITING")
+        self.assertFalse(any(
+            "đã được duyệt" in t for t in self.api.texts_to(ADMIN)))
+        # Someone else's output: the creator is notified as before.
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, text="Việc của cộng tác viên"))
+        task2 = [t for t in self.store.list_tasks()
+                 if t["creator_id"] == CONTRIBUTOR][0]
+        web = self.attach_draft_and_submit(task2["code"])
+        self.api.sent.clear()
+        self.app.handle_update(
+            callback_update(EDITOR, f"out_approve:{web['id']}"))
+        self.assertTrue(any(
+            "đã được duyệt" in t for t in self.api.texts_to(CONTRIBUTOR)))
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's
