@@ -2131,11 +2131,10 @@ class BotApp:
             f"↩️ Đã trả lại thẻ kênh {label} của việc {task['code']}. "
             f"✏️ Yêu cầu chỉnh sửa: {reason}",
         )
-        updated = self.store.get_output(output["id"])
-        self._notify_output_creator(
-            updated, task,
-            prefix=f"↩️ Thẻ kênh {label} của bạn bị trả lại. "
-                   f"✏️ Yêu cầu chỉnh sửa: {reason}")
+        # Owner's rule (2026-10-23): a rejection produces ONLY the
+        # single "Đã trả lại" notice above — no extra message and no
+        # re-sent card to the creator. The creator sees the card again
+        # when Muse attaches the revised draft.
 
     def _output_publish(self, callback_id, user, chat_id, output, task):
         if not roles.can_publish(user):

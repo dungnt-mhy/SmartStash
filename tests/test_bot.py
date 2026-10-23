@@ -766,11 +766,18 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(output["status"], "REJECTED")
         self.assertEqual(output["reject_reason"], "Caption chưa hay, viết lại")
         self.assertEqual(len(self.store.audit_entries("reject_output")), 1)
-        # Creator got the channel card back with the reason.
+        # Owner's rule (2026-10-23): on reject, NO card and NO notice
+        # go back to the creator — only the reviewer's single
+        # "Đã trả lại" notice exists. The creator sees the card again
+        # when the revised draft arrives.
         creator_texts = self.api.texts_to(CONTRIBUTOR)
+        self.assertFalse(any("Caption chưa hay" in t
+                             for t in creator_texts))
+        editor_texts = self.api.texts_to(EDITOR)
         self.assertTrue(any(
-            "Thẻ kênh Facebook" in t and "Caption chưa hay" in t
-            for t in creator_texts))
+            "Đã trả lại thẻ kênh Facebook" in t
+            and "Caption chưa hay, viết lại" in t
+            for t in editor_texts))
 
     def test_reviewer_can_return_draft_channel_with_revision_note(self):
         # The owner asked for a "return with revision request" button
@@ -799,10 +806,15 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(output["status"], "REJECTED")
         self.assertEqual(
             output["reject_reason"], "Đổi ảnh bìa, rút ngắn caption")
-        creator_texts = self.api.texts_to(CONTRIBUTOR)
+        # Owner's rule: exactly ONE notice, to the reviewer — the
+        # creator gets nothing until the revised draft arrives.
+        editor_texts = self.api.texts_to(EDITOR)
         self.assertTrue(any(
-            "Yêu cầu chỉnh sửa: Đổi ảnh bìa, rút ngắn caption" in t
-            for t in creator_texts))
+            "Đã trả lại thẻ kênh" in t
+            and "Yêu cầu chỉnh sửa: Đổi ảnh bìa, rút ngắn caption" in t
+            for t in editor_texts))
+        creator_texts = self.api.texts_to(CONTRIBUTOR)
+        self.assertFalse(any("bị trả lại" in t for t in creator_texts))
 
     def test_hide_and_show_main_keyboard(self):
         self.api.sent.clear()

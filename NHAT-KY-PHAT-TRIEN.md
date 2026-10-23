@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Trả bài chỉ còn đúng 1 thông báo
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo chỉ đạo của chủ dự án: khi người duyệt bấm trả lại thẻ kênh kèm yêu cầu sửa, bot **chỉ gửi đúng 1 tin** "↩️ Đã trả lại thẻ kênh … ✏️ Yêu cầu chỉnh sửa: …" cho người trả — **bỏ hẳn** tin báo + thẻ gửi lại cho người tạo. Người tạo chỉ nhận lại thẻ khi Muse gắn bản sửa mới (đúng nhịp "khi nào có kết quả mới gửi lại"). Đã áp dụng ngay cho lượt trả thật đầu tiên (CV-0002 · Instagram, yêu cầu "Viết hay hơn"): bản Instagram viết lại hay hơn (carousel 4 slide, caption mới) và thẻ đã quay lại Telegram.
+- **Trạng thái:** Đã xong. Kiểm thử 88/88 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Chuẩn thẻ mới (mỗi dòng 1 icon), Bước 3 wizard thành nút chốt, trang nháp có ảnh mặc định
 - **Hạng mục:** Trải nghiệm người dùng + đường giao bản nháp
 - **Thay đổi:** Ba điều chỉnh theo chỉ đạo trực tiếp của chủ dự án trong buổi test sau reset:
