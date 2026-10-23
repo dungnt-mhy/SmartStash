@@ -458,8 +458,8 @@ class BotTestCase(unittest.TestCase):
         edit = self.api.edits[-1]
         rows = edit["reply_markup"]["inline_keyboard"]
         labels = [b["text"] for row in rows for b in row]
-        self.assertIn("❌ 📘 Facebook", labels)
-        self.assertIn("✅ 🌐 Website", labels)
+        self.assertIn("❌ Facebook", labels)
+        self.assertIn("🌐 Website", labels)
         self.assertEqual(
             [b["text"] for b in rows[-1]],
             ["🚀 Chốt! Gửi Muse", "🗑 Thu hồi việc"])
@@ -1288,8 +1288,10 @@ class Phase1TestCase(BotTestCase):
         self.assertIn(handlers.BTN_CLAUDE, labels)
         self.assertNotIn(handlers.BTN_HELP, labels)
 
-    def test_select_all_destinations_wizard_and_card(self):
-        # Wizard: turn one channel off, then "Chọn tất cả" restores it.
+    def test_no_select_all_button_toggles_flip_icon(self):
+        # Owner's model: no "Chọn tất cả" button (only 3 channels);
+        # a chosen channel shows its icon, tapping swaps it for ❌,
+        # tapping again restores it.
         self.app.handle_update(
             message_update(CONTRIBUTOR, text="📝 Giao việc mới"))
         self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
@@ -1301,36 +1303,34 @@ class Phase1TestCase(BotTestCase):
         state = self.store.get_user_state(CONTRIBUTOR)
         self.assertEqual(
             state["payload"]["destinations"], ["website", "facebook"])
-        # The "Chọn tất cả" button appears on the in-place edited
-        # channel-picker keyboard once a channel is off.
         edited = self.api.edits[-1]["reply_markup"] or {}
-        edited_data = [
-            b["callback_data"]
-            for row in edited.get("inline_keyboard", []) for b in row
-        ]
-        self.assertIn("wiz_dest_all", edited_data)
-        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_dest_all"))
+        edited_rows = edited.get("inline_keyboard", [])
+        edited_data = [b["callback_data"] for row in edited_rows
+                       for b in row]
+        self.assertNotIn("wiz_dest_all", edited_data)
+        edited_labels = [b["text"] for row in edited_rows for b in row]
+        self.assertIn("❌ Instagram", edited_labels)
+        self.assertIn("🌐 Website", edited_labels)
+        # Tapping the ❌ channel again restores its icon.
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, "wiz_dest:instagram"))
         state = self.store.get_user_state(CONTRIBUTOR)
         self.assertEqual(
             state["payload"]["destinations"],
             ["website", "facebook", "instagram"])
         self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
         task = self.store.list_tasks()[0]
-        # Task card: stage a channel off, select all again, then OK.
+        # Task card: same behaviour, no select-all row either.
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest:{task['code']}:facebook"))
-        task = self.store.get_task(task["code"])
-        self.assertEqual(
-            json.loads(task["destinations"]),
-            ["website", "facebook", "instagram"])
         edited = self.api.edits[-1]["reply_markup"] or {}
         edited_data = [
             b["callback_data"]
             for row in edited.get("inline_keyboard", []) for b in row
         ]
-        self.assertIn(f"task_dest_all:{task['code']}", edited_data)
+        self.assertNotIn(f"task_dest_all:{task['code']}", edited_data)
         self.app.handle_update(
-            callback_update(CONTRIBUTOR, f"task_dest_all:{task['code']}"))
+            callback_update(CONTRIBUTOR, f"task_dest:{task['code']}:facebook"))
         self.app.handle_update(
             callback_update(CONTRIBUTOR, f"task_dest_ok:{task['code']}"))
         task = self.store.get_task(task["code"])

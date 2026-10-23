@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Nút chọn kênh: bỏ tích xanh, icon đổi thành ❌ khi bỏ chọn; bỏ nút "Chọn tất cả"
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo chỉ đạo của chủ dự án: nút kênh đang chọn chỉ hiện **icon + tên kênh** (bỏ hẳn dấu ✅ phía trước); chạm để bỏ chọn thì **icon của kênh đổi thành ❌** (tên kênh giữ nguyên), chạm lại thì icon trở lại. **Bỏ nút "Chọn tất cả"** ở cả wizard Bước 3 lẫn thẻ việc — chỉ có 3 kênh, không cần nút này. (Chủ dự án cũng xác nhận emoji không có icon Facebook/Instagram chính thức; bộ icon 🌐/📘/📸 giữ nguyên làm biểu tượng đại diện.)
+- **Trạng thái:** Đã xong. Kiểm thử 91/91 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Icon cho từng kênh + nút hủy về thùng rác
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo yêu cầu của chủ dự án: các nút chọn kênh có icon riêng — **🌐 Website, 📘 Facebook, 📸 Instagram** (áp dụng ở Bước 3 wizard, khối chọn kênh trên thẻ việc và dòng 🎯 nơi đăng); nút hủy ở Bước 3 quay về icon **thùng rác** ("🗑 Hủy việc") theo đúng chỉ đạo "hủy việc vẫn là icon thùng rác đỏ" (trên điện thoại của chủ dự án emoji thùng rác hiển thị tông đỏ).

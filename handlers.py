@@ -34,14 +34,25 @@ STATUS_LABELS = {
     STATUS_RETRACTED: "Đã thu hồi (RETRACTED)",
 }
 
-#: Publish destinations, in display order: (key, label).
+#: Publish destinations, in display order: (key, icon, name).
 DESTINATIONS = (
-    ("website", "🌐 Website"),
-    ("facebook", "📘 Facebook"),
-    ("instagram", "📸 Instagram"),
+    ("website", "🌐", "Website"),
+    ("facebook", "📘", "Facebook"),
+    ("instagram", "📸", "Instagram"),
 )
-DESTINATION_KEYS = tuple(key for key, _label in DESTINATIONS)
-DESTINATION_LABELS = dict(DESTINATIONS)
+DESTINATION_KEYS = tuple(key for key, _icon, _name in DESTINATIONS)
+DESTINATION_LABELS = {key: f"{icon} {name}"
+                      for key, icon, name in DESTINATIONS}
+DESTINATION_NAMES = {key: name for key, _icon, name in DESTINATIONS}
+
+
+def _dest_btn_text(key, chosen):
+    """Channel-picker button text (owner's model): a chosen channel
+    shows its own icon + name; tapping it swaps the icon for ❌.
+    There is no separate select-all button — only 3 channels."""
+    if key in chosen:
+        return DESTINATION_LABELS[key]
+    return f"❌ {DESTINATION_NAMES[key]}"
 
 
 def task_destinations(task):
@@ -607,13 +618,11 @@ class BotApp:
                 else task_destinations(task)
             rows.append([
                 _btn(
-                    f"{'✅' if key in chosen else '❌'} {label}",
+                    _dest_btn_text(key, chosen),
                     f"task_dest:{code}:{key}",
                 )
-                for key, label in DESTINATIONS
+                for key, _icon, _name in DESTINATIONS
             ])
-            if len(chosen) < len(DESTINATIONS):
-                rows.append([_btn("✅ Chọn tất cả", f"task_dest_all:{code}")])
         elif live_outputs:
             rows.append([_btn("📋 Thẻ các kênh", f"task_outputs:{code}")])
         bottom = []
@@ -1062,13 +1071,11 @@ class BotApp:
         chosen = payload.get("destinations") or []
         rows = [[
             _btn(
-                f"{'✅' if key in chosen else '❌'} {label}",
+                _dest_btn_text(key, chosen),
                 f"wiz_dest:{key}",
             )
-            for key, label in DESTINATIONS
+            for key, _icon, _name in DESTINATIONS
         ]]
-        if len(chosen) < len(DESTINATIONS):
-            rows.append([_btn("✅ Chọn tất cả", "wiz_dest_all")])
         rows.append([_btn("✏️ Sửa nội dung gợi ý", "wiz_hint")])
         rows.append([
             _btn("🚀 Chốt! Gửi Muse", "wiz_create"),
