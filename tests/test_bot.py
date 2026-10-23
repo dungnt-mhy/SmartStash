@@ -483,6 +483,53 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(len(tracked), 1)
         self.assertEqual(tracked[0]["message_id"], second["message_id"])
 
+    def test_creator_can_request_draft_revision(self):
+        # Owner's rule: every draft card needs a Sửa lại button so
+        # the creator can tell Muse what to change.
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        admin = self.store.get_user(ADMIN)
+        markup = self.app.output_keyboard(
+            self.store.get_output(fb["id"]), admin)
+        data = [b["callback_data"] for row in markup["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_revise:{fb['id']}", data)
+        # Someone else's Sửa lại tap is denied.
+        self.api.answered.clear()
+        self.app.handle_update(
+            callback_update(EDITOR, f"out_revise:{fb['id']}"))
+        self.assertTrue(self.api.answered[-1]["show_alert"])
+        # The creator taps it and types the change: the output goes
+        # to REJECTED carrying the note verbatim, audited, and the
+        # creator gets exactly one confirmation message.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_revise:{fb['id']}"))
+        self.api.sent.clear()
+        self.app.handle_update(
+            message_update(ADMIN, text="Viết ngắn gọn hơn, bỏ hashtag"))
+        updated = self.store.get_output(fb["id"])
+        self.assertEqual(updated["status"], "REJECTED")
+        self.assertEqual(updated["reject_reason"],
+                         "Viết ngắn gọn hơn, bỏ hashtag")
+        self.assertEqual(len(self.store.audit_entries("revise_output")), 1)
+        notes = [t for t in self.api.texts_to(ADMIN)
+                 if "Đã ghi nhận yêu cầu sửa" in t]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("Viết ngắn gọn hơn, bỏ hashtag", notes[0])
+
+    def test_contributor_card_also_has_revise_button(self):
+        task = self.create_contributor_task()
+        web = self.store.get_output_by_channel(task["code"], "website")
+        self.store.set_output_draft(web["id"], "https://example.com/d/web")
+        creator = self.store.get_user(CONTRIBUTOR)
+        markup = self.app.output_keyboard(
+            self.store.get_output(web["id"]), creator)
+        data = [b["callback_data"] for row in markup["inline_keyboard"]
+                for b in row]
+        self.assertIn(f"out_submit:{web['id']}", data)
+        self.assertIn(f"out_revise:{web['id']}", data)
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thêm nút ✏️ Sửa lại cho người tạo trên thẻ kênh
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án xem thẻ CV-0007 và yêu cầu "phải có nút sửa lại + gợi ý sửa lại". Trước đó ↩️ Trả lại chỉ dành cho người duyệt; người tạo (kể cả Admin, sau đợt phân vai) không có cách nào bảo Muse viết lại bản nháp ngay trên thẻ. Đã thêm nút **✏️ Sửa lại** cho NGƯỜI TẠO trên mọi thẻ kênh đã có nháp (trạng thái Nháp/Bị trả): bấm → gõ nội dung cần sửa → đầu ra chuyển sang "cần viết lại" kèm nguyên văn yêu cầu (audit `revise_output`), bot chỉ gửi đúng 1 tin xác nhận; bộ theo dõi nền bắt sự kiện này như một lượt trả bài và Muse viết lại, gắn lại cùng trang telegra.ph. Bố cục thẻ của Admin: [🚀 Đăng] / [✏️ Sửa lại · 🗑 Hủy bài]; thẻ người tạo thường: [📤 Gửi duyệt] / [✏️ Sửa lại].
+- **Trạng thái:** Đã xong. Kiểm thử 106/106 đạt, bot đã khởi động lại, thẻ CV-0007 đã được gửi lại với nút mới.
+
 ### 2026-10-23 — Tăng tốc gắn nháp: tải ảnh song song + quét việc mới mỗi 30 giây
 - **Hạng mục:** Hiệu năng
 - **Thay đổi:** Chủ dự án nhận xét tạo bài qua telegra.ph "mất khá nhiều time". Đo thực tế: bản thân telegra.ph rất nhanh (gắn lại 1 đầu ra gồm sửa trang + nhúng ảnh đã lưu cache chỉ ~1 giây). Phần chậm nằm ở (1) chờ bộ quét phát hiện việc mới (chu kỳ 60 giây) và (2) tải ảnh MỚI lên GitHub nối tiếp từng ảnh. Đã sửa cả hai: chu kỳ quét giảm còn 30 giây; botctl tải các ảnh của một việc song song (tối đa 4 luồng, giữ nguyên thứ tự ảnh; ImageHost thêm khóa an toàn cho cache).

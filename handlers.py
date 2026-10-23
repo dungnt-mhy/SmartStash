@@ -390,6 +390,13 @@ class BotApp:
                 user, chat_id, text, state["payload"])
             return
 
+        # A creator who tapped "Sửa lại" on their own channel card is
+        # expected to type what Muse should change in the draft.
+        if state and state["state"] == "await_output_revise_reason" and text:
+            self._apply_output_revise_reason(
+                user, chat_id, text, state["payload"])
+            return
+
         # Main reply-keyboard buttons arrive as ordinary text messages
         # whose text is exactly the button label.
         if text and self._handle_keyboard_label(user, tg_user, chat_id, text):
@@ -1933,10 +1940,19 @@ class BotApp:
             # Hủy bài.
             if output["draft_ref"]:
                 rows.append([_btn("🚀 Đăng", f"out_publish:{oid}")])
-            rows.append([_btn("🗑 Hủy bài", f"out_cancel:{oid}")])
+                rows.append([
+                    _btn("✏️ Sửa lại", f"out_revise:{oid}"),
+                    _btn("🗑 Hủy bài", f"out_cancel:{oid}"),
+                ])
+            else:
+                rows.append([_btn("🗑 Hủy bài", f"out_cancel:{oid}")])
             return _keyboard(rows)
         if is_creator and status in (STATUS_DRAFT, STATUS_REJECTED):
             rows.append([_btn("📤 Gửi duyệt", f"out_submit:{oid}")])
+            if output["draft_ref"]:
+                # The creator can always ask Muse to rewrite their
+                # own draft before it goes anywhere (owner's rule).
+                rows.append([_btn("✏️ Sửa lại", f"out_revise:{oid}")])
         if roles.can_review(viewer["role"]) and status == STATUS_PENDING:
             # Owner's review row: Duyệt · Trả lại · Hủy bài, one row.
             rows.append([
@@ -2054,6 +2070,8 @@ class BotApp:
             self._output_approve(callback_id, user, chat_id, output, task)
         elif action == "out_reject":
             self._output_reject_start(callback_id, user, chat_id, output, task)
+        elif action == "out_revise":
+            self._output_revise_start(callback_id, user, chat_id, output, task)
         elif action == "out_cancel":
             self._output_cancel(callback_id, user, chat_id, output, task)
         elif action == "out_publish":
@@ -2203,6 +2221,73 @@ class BotApp:
         # single "Đã trả lại" notice above — no extra message and no
         # re-sent card to the creator. The creator sees the card again
         # when Muse attaches the revised draft.
+
+    def _output_revise_start(self, callback_id, user, chat_id,
+                             output, task):
+        """Creator-side rewrite request (owner's rule: every draft
+        card needs a Sửa lại button). Distinct from a reviewer's
+        Trả lại: this is the author asking Muse to redo the draft."""
+        if task["creator_id"] != user["telegram_id"]:
+            self._answer(callback_id,
+                         "⛔ Chỉ người tạo việc mới sửa lại được.",
+                         show_alert=True)
+            return
+        if output["status"] not in (STATUS_DRAFT, STATUS_REJECTED):
+            self._answer(callback_id,
+                         "Thẻ kênh này không ở trạng thái sửa lại được.",
+                         show_alert=True)
+            return
+        if not output["draft_ref"]:
+            self._answer(callback_id,
+                         "Kênh này chưa có bản nháp để sửa.",
+                         show_alert=True)
+            return
+        self.store.set_user_state(
+            user["telegram_id"], "await_output_revise_reason",
+            {"output_id": output["id"]},
+        )
+        self._answer(callback_id, "Hãy nhắn nội dung cần sửa.")
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        self._send(
+            chat_id,
+            f"✏️ Sửa lại thẻ kênh {label} của việc {task['code']}: "
+            "hãy nhắn NỘI DUNG CẦN SỬA trong tin nhắn tiếp theo — "
+            "Muse sẽ viết lại bản nháp theo đúng yêu cầu này.",
+        )
+
+    def _apply_output_revise_reason(self, user, chat_id, reason, payload):
+        output_id = (payload or {}).get("output_id")
+        self.store.clear_user_state(user["telegram_id"])
+        output = self.store.get_output(output_id) \
+            if output_id is not None else None
+        if output is None:
+            self._send(chat_id, "Không tìm thấy thẻ kênh cần sửa.")
+            return
+        task = self.store.get_task(output["task_code"])
+        if task is None or task["creator_id"] != user["telegram_id"]:
+            self._send(chat_id, "⛔ Bạn không còn là người tạo việc này.")
+            return
+        if output["status"] not in (STATUS_DRAFT, STATUS_REJECTED):
+            self._send(chat_id,
+                       "Thẻ kênh này không còn ở trạng thái sửa lại được.")
+            return
+        self.store.set_output_status(
+            output["id"], STATUS_REJECTED, reject_reason=reason)
+        self.store.audit(user["telegram_id"], "revise_output", "output",
+                         output["id"],
+                         detail=f"task={task['code']} "
+                                f"channel={output['channel']} reason={reason}")
+        self.store.sync_task_status_from_outputs(task["code"])
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        # One notice only, like the reject flow: the creator sees the
+        # card again when Muse attaches the rewritten draft.
+        self._send(
+            chat_id,
+            f"✏️ Đã ghi nhận yêu cầu sửa thẻ kênh {label} của việc "
+            f"{task['code']}. Nội dung cần sửa: {reason}",
+        )
 
     def _output_cancel(self, callback_id, user, chat_id, output, task):
         """🗑 Hủy bài: cancel this channel's article outright
