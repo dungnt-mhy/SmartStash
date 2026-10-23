@@ -48,6 +48,13 @@ class FakeApi:
             {"chat_id": chat_id, "path": _P(file_path), "caption": caption})
         return {"message_id": 999}
 
+    def send_photo(self, chat_id, file_path, caption=None):
+        from pathlib import Path as _P
+        self.documents.append(
+            {"chat_id": chat_id, "path": _P(file_path), "caption": caption,
+             "kind": "photo"})
+        return {"message_id": 999}
+
     def send_message(self, chat_id, text, reply_markup=None, **kwargs):
         self.sent.append(
             {"chat_id": chat_id, "text": text, "reply_markup": reply_markup}
@@ -770,6 +777,66 @@ class BotTestCase(unittest.TestCase):
             preview = docs[0]["path"].read_text(encoding="utf-8")
             self.assertIn("Bài viết hay về hội thảo", preview)
             self.assertIn("<strong>", preview)
+
+    def test_attach_facebook_draft_sends_preview_image(self):
+        task = self.create_contributor_task()
+        code = task["code"]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = Path(tmp) / f"{code}-facebook.md"
+            md_path.write_text(
+                "Bài đăng Facebook vui nhộn về hội thảo.\n\n"
+                "Mọi người cùng xem nhé!",
+                encoding="utf-8")
+            original = botctl.build_client_or_warn
+            botctl.build_client_or_warn = lambda no_notify: self.api
+            self.api.documents.clear()
+            try:
+                args = argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    ref=md_path.name, no_notify=False, file=str(md_path))
+                rc = botctl.cmd_attach_output_draft(self.store, args)
+            finally:
+                botctl.build_client_or_warn = original
+            self.assertEqual(rc, 0)
+            photos = [d for d in self.api.documents
+                      if d.get("kind") == "photo"
+                      and d["chat_id"] == CONTRIBUTOR]
+            self.assertEqual(len(photos), 1)
+            self.assertTrue(photos[0]["path"].name.endswith("-fb-preview.jpg"))
+            self.assertTrue(photos[0]["path"].exists())
+            self.assertIn("Xem trước bài Facebook", photos[0]["caption"])
+
+    def test_attach_instagram_draft_sends_slide_images(self):
+        task = self.create_contributor_task()
+        code = task["code"]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = Path(tmp) / f"{code}-instagram.md"
+            md_path.write_text(
+                "# Kịch bản carousel\n\n"
+                "## Slide 1 (ảnh bìa)\n"
+                "- Dòng 1: Xin chào slide một\n"
+                "- Dòng 2: Dòng phụ của slide một\n\n"
+                "## Slide 2\n"
+                "- Dòng 1: Nội dung slide hai\n",
+                encoding="utf-8")
+            original = botctl.build_client_or_warn
+            botctl.build_client_or_warn = lambda no_notify: self.api
+            self.api.documents.clear()
+            try:
+                args = argparse.Namespace(
+                    task_code=code, channel="instagram",
+                    ref=md_path.name, no_notify=False, file=str(md_path))
+                rc = botctl.cmd_attach_output_draft(self.store, args)
+            finally:
+                botctl.build_client_or_warn = original
+            self.assertEqual(rc, 0)
+            photos = [d for d in self.api.documents
+                      if d.get("kind") == "photo"
+                      and d["chat_id"] == CONTRIBUTOR]
+            self.assertEqual(len(photos), 2)
+            names = sorted(p["path"].name for p in photos)
+            self.assertTrue(names[0].endswith("-ig-slide1.jpg"))
+            self.assertTrue(names[1].endswith("-ig-slide2.jpg"))
 
     # --------------------------------------- new: botctl + migration cover
     def test_botctl_task_dict_includes_destinations(self):

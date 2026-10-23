@@ -258,9 +258,12 @@ python3 botctl.py attach-output-draft CV-0001 facebook https://website/vi-du/nha
 
 # Kèm --file <file nháp .md>: ngoài thẻ kênh, người tạo + người duyệt
 # còn nhận TOÀN VĂN bản nháp dạng tin nhắn đọc được ngay trong
-# Telegram; riêng kênh website còn nhận thêm file HTML xem trước
-# (bài trình bày như bài thật, kèm ảnh tư liệu nhúng sẵn) để chạm mở
-# bằng trình duyệt — không ai phải mở file .md thô để duyệt bài.
+# Telegram; kênh website nhận thêm file HTML xem trước (bài trình bày
+# như bài thật, kèm ảnh tư liệu nhúng sẵn) để chạm mở bằng trình
+# duyệt; kênh Facebook nhận 1 ẢNH mô phỏng bài đăng và kênh Instagram
+# nhận ảnh mô phỏng từng slide carousel — tất cả hiện inline ngay
+# trong khung chat, liếc qua là duyệt nhanh, không phải mở file .md
+# thô hay bấm vào link nào.
 python3 botctl.py attach-output-draft CV-0001 website CV-0001-website.md --file ./CV-0001-website.md
 
 # Đánh dấu riêng đầu ra Facebook đã đăng, gắn link public và gửi

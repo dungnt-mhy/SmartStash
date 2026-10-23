@@ -223,6 +223,217 @@ def md_to_preview_html(md: str, title: str, photo_paths) -> str:
     )
 
 
+def _pil_font(size, bold=False):
+    from PIL import ImageFont
+
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
+        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf" if bold
+        else "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    ]
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _strip_emoji(text: str) -> str:
+    """Preview images are drawn with regular fonts (no colour emoji) —
+    drop emoji so the mock text stays clean; the Telegram text message
+    keeps the original emoji."""
+    import re
+
+    return re.sub(
+        "[\U0001F000-\U0001FAFF\u2600-\u27BF\u2190-\u21FF\u2B00-\u2BFF"
+        "\uFE0F\u200d]+", "", text).strip()
+
+
+def _wrap_lines(draw, text, font, max_width):
+    lines = []
+    for para in text.split("\n"):
+        words, current = para.split(), ""
+        if not words:
+            lines.append("")
+            continue
+        for word in words:
+            candidate = (current + " " + word).strip()
+            if draw.textlength(candidate, font=font) <= max_width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+    return lines
+
+
+def _paste_cover(canvas, photo_path, box):
+    """Paste a photo centre-cropped to fill box (x0, y0, x1, y1)."""
+    from PIL import Image
+
+    x0, y0, x1, y1 = box
+    width, height = x1 - x0, y1 - y0
+    try:
+        img = Image.open(photo_path).convert("RGB")
+    except OSError:
+        return
+    scale = max(width / img.width, height / img.height)
+    img = img.resize((int(img.width * scale) + 1, int(img.height * scale) + 1))
+    left = (img.width - width) // 2
+    top = (img.height - height) // 2
+    canvas.paste(img.crop((left, top, left + width, top + height)), (x0, y0))
+
+
+def _render_facebook_preview(task, md, photos, out_path):
+    """Render the Facebook draft as ONE glanceable image: a mock post
+    (tag, post text, the task's photos) the reader sees inline in
+    Telegram without opening anything."""
+    from PIL import Image, ImageDraw
+
+    width, margin = 1080, 48
+    body_font = _pil_font(40)
+    small_font = _pil_font(30)
+    tag_font = _pil_font(30, bold=True)
+    probe = ImageDraw.Draw(Image.new("RGB", (width, 10)))
+    text = _strip_emoji(md_to_telegram_text(md))
+    kept = []
+    for line in text.split("\n"):
+        low = line.strip().lower()
+        if low.startswith(("ảnh nổi bật", "hoặc đăng", "ảnh bìa đề xuất",
+                           "kênh:", "bản nháp")):
+            continue
+        kept.append(line)
+    wrapped = _wrap_lines(probe, "\n".join(kept).strip(), body_font,
+                          width - 2 * margin)
+    if len(wrapped) > 16:
+        wrapped = wrapped[:16] + ["…"]
+    line_h = 56
+    text_h = len(wrapped) * line_h
+    photo_h = 620 if photos else 0
+    height = 120 + text_h + (photo_h + 24 if photo_h else 0) + 90
+    canvas = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle([24, 24, width - 24, height - 24], radius=28,
+                           outline=(210, 215, 225), width=3)
+    draw.ellipse([margin, 44, margin + 56, 100], fill=(24, 119, 242))
+    draw.text((margin + 76, 52), "FACEBOOK · BẢN NHÁP", font=tag_font,
+              fill=(24, 119, 242))
+    y = 124
+    for line in wrapped:
+        draw.text((margin, y), line, font=body_font, fill=(20, 20, 20))
+        y += line_h
+    if photo_h:
+        y += 24
+        if len(photos) >= 2:
+            half = (width - 2 * margin - 12) // 2
+            _paste_cover(canvas, photos[0], (margin, y, margin + half, y + photo_h))
+            _paste_cover(canvas, photos[1],
+                         (margin + half + 12, y, width - margin, y + photo_h))
+        else:
+            _paste_cover(canvas, photos[0], (margin, y, width - margin, y + photo_h))
+        y += photo_h
+    draw.text((margin, height - 64),
+              f"Việc {task['code']} — ảnh mô phỏng bài đăng, chưa đăng thật.",
+              font=small_font, fill=(110, 115, 125))
+    canvas.save(out_path, "JPEG", quality=88)
+    return out_path
+
+
+def _parse_ig_slides(md: str):
+    """Extract carousel slides (overlay text lines) from an Instagram
+    draft .md, tolerating the layout variants Muse writes. Marker
+    lines (Dòng 1:/Dòng 2:/Chữ trên ảnh:/Phụ đề:) win; quoted strings
+    are the fallback. A block ends at the caption/hashtag section so
+    quotes from the caption never leak into the last slide."""
+    import re
+
+    text = _strip_draft_scaffolding(md)
+    blocks, current = [], None
+    marker = re.compile(r"(?i)^[#*\s>\-]*(slide|ảnh)\s*(\d+)")
+    stopper = re.compile(
+        r"(?i)^[#*\s]*(caption|hashtag|ghi chú|ảnh bìa đề xuất|lưu ý)")
+    value_re = re.compile(
+        r"(?i)(dòng\s*\d+|chữ trên\s*(ảnh|slide)|phụ đề nhỏ)"
+        r"\s*[:：]\s*(.+)")
+    for line in text.split("\n"):
+        if marker.match(line):
+            current = []
+            blocks.append(current)
+            current.append(line)
+            continue
+        if stopper.match(line):
+            current = None
+            continue
+        if current is not None:
+            current.append(line)
+    slides = []
+    for block in blocks:
+        lines = []
+        for line in block:
+            m = value_re.search(line)
+            if m:
+                value = m.group(3).strip().strip("*").strip()
+                if len(value) >= 2 and value[0] in "\"“" \
+                        and value[-1] in "\"”":
+                    value = value[1:-1].strip()
+                if value:
+                    lines.append(value)
+        if not lines:
+            for quoted in re.findall(r"[\"“]([^\"”]{3,120})[\"”]",
+                                     "\n".join(block)):
+                if ".jpg" in quoted or "file_" in quoted:
+                    continue
+                lines.append(quoted.strip())
+        lines = [ln for ln in dict.fromkeys(lines) if ln]
+        if lines:
+            slides.append(lines[:3])
+    return slides
+
+
+def _render_instagram_slide(task, index, total, lines, photo, out_path):
+    """Render one carousel slide as a square image: the task's photo
+    full-bleed, the slide's text overlaid at the bottom, a 1/N badge —
+    exactly what the reader glances at in Telegram."""
+    from PIL import Image, ImageDraw
+
+    size = 1080
+    canvas = Image.new("RGB", (size, size), (38, 40, 48))
+    if photo is not None:
+        _paste_cover(canvas, photo, (0, 0, size, size))
+    overlay = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    for i in range(340):
+        alpha = int(190 * (i / 340))
+        odraw.line([(0, size - 340 + i), (size, size - 340 + i)],
+                   fill=(0, 0, 0, alpha))
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay)
+    draw = ImageDraw.Draw(canvas)
+    tag_font = _pil_font(30, bold=True)
+    draw.rounded_rectangle([36, 36, 330, 92], radius=16, fill=(0, 0, 0, 140))
+    draw.text((56, 48), "INSTAGRAM · NHÁP", font=tag_font, fill="white")
+    badge = f"{index}/{total}"
+    bw = draw.textlength(badge, font=tag_font) + 40
+    draw.rounded_rectangle([size - 36 - bw, 36, size - 36, 92], radius=16,
+                           fill=(0, 0, 0, 140))
+    draw.text((size - 16 - bw, 48), badge, font=tag_font, fill="white")
+    font = _pil_font(52, bold=True)
+    wrapped = []
+    for line in lines:
+        wrapped += _wrap_lines(draw, _strip_emoji(line), font, size - 120)
+    y = size - 80 - len(wrapped) * 68
+    for line in wrapped:
+        tw = draw.textlength(line, font=font)
+        draw.text(((size - tw) / 2 + 2, y + 2), line, font=font,
+                  fill=(0, 0, 0, 160))
+        draw.text(((size - tw) / 2, y), line, font=font, fill="white")
+        y += 68
+    canvas.convert("RGB").save(out_path, "JPEG", quality=88)
+    return out_path
+
+
 def _deliver_draft_content(store, client, task, output, md_path):
     """Send the draft's full content to the creator + reviewers in
     Telegram: readable text messages for every channel, plus — for the
@@ -244,10 +455,10 @@ def _deliver_draft_content(store, client, task, output, md_path):
     plain = md_to_telegram_text(md)
     header = f"📄 NỘI DUNG BẢN NHÁP — {label} · Việc {task['code']}"
     chunks = _chunk_text(plain)
+    files_dir = DEFAULT_DATA_DIR / "files" / task["code"]
+    photos = sorted(files_dir.glob("*")) if files_dir.is_dir() else []
     preview_path = None
     if output["channel"] == "website":
-        files_dir = DEFAULT_DATA_DIR / "files" / task["code"]
-        photos = sorted(files_dir.glob("*")) if files_dir.is_dir() else []
         title = next(
             (ln.lstrip("# ").strip() for ln in
              _strip_draft_scaffolding(md).split("\n")
@@ -260,7 +471,39 @@ def _deliver_draft_content(store, client, task, output, md_path):
             print(f"Cảnh báo: không tạo được bản xem trước HTML: {exc}",
                   file=sys.stderr)
             preview_path = None
+    # Facebook / Instagram: the lightest possible preview in Telegram is
+    # an inline image — a rendered mock of the post / carousel slides,
+    # visible at a glance without opening any link or file.
+    image_paths, image_caption = [], None
+    try:
+        if output["channel"] == "facebook":
+            path = md_path.with_name(md_path.stem + "-fb-preview.jpg")
+            _render_facebook_preview(task, md, photos, path)
+            image_paths = [path]
+            image_caption = (
+                f"👀 Xem trước bài Facebook của việc {task['code']} "
+                "— ảnh mô phỏng để duyệt nhanh, chưa đăng thật.")
+        elif output["channel"] == "instagram":
+            slides = _parse_ig_slides(md)
+            for i, lines in enumerate(slides, start=1):
+                photo = photos[i - 1] if i - 1 < len(photos) \
+                    else (photos[-1] if photos else None)
+                path = md_path.with_name(
+                    md_path.stem + f"-ig-slide{i}.jpg")
+                _render_instagram_slide(
+                    task, i, len(slides), lines, photo, path)
+                image_paths.append(path)
+            if image_paths:
+                image_caption = (
+                    f"👀 Xem trước carousel Instagram của việc "
+                    f"{task['code']} — {len(image_paths)} slide, "
+                    "ảnh mô phỏng để duyệt nhanh, chưa đăng thật.")
+    except Exception as exc:
+        print(f"Cảnh báo: không tạo được ảnh xem trước: {exc}",
+              file=sys.stderr)
+        image_paths = []
     send_document = getattr(client, "send_document", None)
+    send_photo = getattr(client, "send_photo", None)
     for row in recipients:
         if row["chat_id"] is None:
             continue
@@ -274,6 +517,11 @@ def _deliver_draft_content(store, client, task, output, md_path):
                     caption=f"👀 Xem trước bản nháp Website của việc "
                             f"{task['code']} như bài thật — chạm để mở "
                             "bằng trình duyệt.")
+            if send_photo is not None:
+                for i, path in enumerate(image_paths):
+                    send_photo(
+                        row["chat_id"], path,
+                        caption=image_caption if i == 0 else None)
         except Exception as exc:
             print(f"Cảnh báo: không gửi được nội dung nháp tới "
                   f"{row['telegram_id']}: {exc}", file=sys.stderr)

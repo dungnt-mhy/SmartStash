@@ -144,13 +144,14 @@ class TelegramClient:
             reply_markup=reply_markup, **kwargs,
         )
 
-    def send_document(self, chat_id, file_path, caption=None):
-        """Upload a local file via sendDocument (multipart/form-data).
+    def _post_multipart(self, method, field_name, chat_id, file_path,
+                        caption=None):
+        """Shared multipart upload for sendDocument / sendPhoto.
 
         The JSON transport cannot carry uploads, so the multipart body
-        is built directly and posted to the same method URL — the
-        credential surrogate rides raw in the URL path, exactly as for
-        every other call in this client.
+        is built directly and posted to the method URL — the credential
+        surrogate rides raw in the URL path, exactly as for every other
+        call in this client.
         """
         import mimetypes
         import uuid
@@ -170,14 +171,14 @@ class TelegramClient:
             or "application/octet-stream"
         body += f"--{boundary}\r\n".encode()
         body += (
-            f'Content-Disposition: form-data; name="document"; '
+            f'Content-Disposition: form-data; name="{field_name}"; '
             f'filename="{path.name}"\r\n'
         ).encode()
         body += f"Content-Type: {content_type}\r\n\r\n".encode()
         body += path.read_bytes() + b"\r\n"
         body += f"--{boundary}--\r\n".encode()
         request = urllib.request.Request(
-            self.method_url("sendDocument"), data=bytes(body),
+            self.method_url(method), data=bytes(body),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
             method="POST",
         )
@@ -188,8 +189,16 @@ class TelegramClient:
             description = result.get("description", "") \
                 if isinstance(result, dict) else ""
             raise TelegramApiError(
-                f"Telegram API sendDocument failed: {description}")
+                f"Telegram API {method} failed: {description}")
         return result.get("result")
+
+    def send_document(self, chat_id, file_path, caption=None):
+        return self._post_multipart(
+            "sendDocument", "document", chat_id, file_path, caption)
+
+    def send_photo(self, chat_id, file_path, caption=None):
+        return self._post_multipart(
+            "sendPhoto", "photo", chat_id, file_path, caption)
 
     def edit_message_text(self, chat_id, message_id, text, reply_markup=None,
                           **kwargs):

@@ -20,6 +20,12 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Xem trước Facebook/Instagram ngay trong Telegram bằng ảnh mô phỏng
+- **Hạng mục:** Tính năng / Trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án nói rõ lại ý: muốn xem trước bài Facebook/Instagram **ngay trong Telegram, trước khi nhấn vào bất cứ link nào, theo cách nhẹ nhất** (lần sửa trước làm ở trang Phòng đọc bản nháp trong Muse là hiểu nhầm chỗ — trang đó vẫn giữ, coi như thêm một nơi đọc). Nay `botctl attach-output-draft --file` còn tự dựng và gửi kèm **ảnh xem trước**: kênh Facebook = 1 ảnh mô phỏng bài đăng (thẻ trắng, chữ của post, ảnh tư liệu); kênh Instagram = mỗi slide carousel 1 ảnh vuông (ảnh tư liệu phủ đầy, chữ của slide ở dưới, huy hiệu 1/N). Ảnh hiện inline ngay trong khung chat Telegram, liếc qua là duyệt nhanh được. `telegram_client` thêm `send_photo` (dùng chung bộ upload multipart với `send_document`); ảnh dựng bằng Pillow, emoji được lược bỏ trong ảnh cho sạch chữ (tin nhắn toàn văn vẫn giữ emoji). Đã gửi bổ sung cho cả 6 đầu ra Facebook/Instagram của CV-0001 → CV-0004 (2 ảnh FB + 13 ảnh slide IG).
+- **Lý do:** Yêu cầu trực tiếp của chủ dự án: "ở telegram bạn ơi, không phải ở đây".
+- **Trạng thái:** Đã xong. Kiểm thử 80/80 đạt (thêm 2 test: gắn nháp Facebook kèm --file có ảnh xem trước, Instagram có đủ ảnh từng slide; bộ tách slide đã kiểm chứng trên cả 4 việc thật, gồm các biến thể định dạng Chữ trên ảnh/Dòng 1–2/dấu ngoặc kép, và chặn rò chữ từ phần caption vào slide cuối). Bot đã khởi động lại để nạp bản client mới.
+
 ### 2026-10-23 — Bản nháp đọc được ngay: toàn văn trong Telegram + bản xem trước HTML cho Website
 - **Hạng mục:** Tính năng / Trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án phản ánh bản nháp gửi dạng file/tham chiếu `.md` không mở xem được, gợi ý "gửi prototype hay kiểu draft thật". Đã sửa cơ chế chuyển nháp: `botctl attach-output-draft` thêm tuỳ chọn `--file <file.md>` — ngoài thẻ kênh, người tạo + người duyệt nhận (1) **toàn văn bản nháp** dạng tin nhắn Telegram đã gọt bỏ ký hiệu markdown (tự chia đoạn nếu dài), và (2) riêng kênh **Website**: một **file HTML xem trước** trình bày như bài thật (tiêu đề, sapo, thân bài, ảnh tư liệu nhúng base64) gửi bằng sendDocument để chạm mở bằng trình duyệt. `telegram_client` được bổ sung `send_document` (multipart). Đã áp dụng ngay cho cả 3 việc đang chờ (CV-0001, CV-0002, CV-0003 — tổng 7 đầu ra).
