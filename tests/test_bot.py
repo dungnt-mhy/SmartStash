@@ -305,12 +305,24 @@ class BotTestCase(unittest.TestCase):
             self.store.get_output(output["id"])["status"], "APPROVED_WAITING")
         self.assertEqual(
             len(self.store.audit_entries("denied_output_publish_attempt")), 1)
-        # Admin publishes.
+        # Admin presses Đăng: that is the final go-ahead, not the
+        # publish itself — the output stays APPROVED_WAITING, one
+        # publish_requested audit is written, and Muse completes
+        # the publish (botctl set-output-published) with the link.
         self.app.handle_update(
             callback_update(ADMIN, f"out_publish:{output['id']}"))
         self.assertEqual(
+            self.store.get_output(output["id"])["status"],
+            "APPROVED_WAITING")
+        self.assertEqual(
+            len(self.store.audit_entries("publish_requested")), 1)
+        self.assertEqual(len(self.store.audit_entries("publish_output")), 0)
+        self.assertTrue(any(
+            "Đã nhận lệnh đăng" in t for t in self.api.texts_to(ADMIN)))
+        self.store.set_output_public_url(
+            output["id"], "https://example.com/bai-viet")
+        self.assertEqual(
             self.store.get_output(output["id"])["status"], "PUBLISHED")
-        self.assertEqual(len(self.store.audit_entries("publish_output")), 1)
 
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
@@ -604,8 +616,8 @@ class BotTestCase(unittest.TestCase):
         web = self.attach_draft_and_submit(code)
         self.app.handle_update(
             callback_update(EDITOR, f"out_approve:{web['id']}"))
-        self.app.handle_update(
-            callback_update(ADMIN, f"out_publish:{web['id']}"))
+        self.store.set_output_public_url(
+            web["id"], "https://example.com/bai-viet")
         self.assertEqual(
             self.store.get_output(web["id"])["status"], "PUBLISHED")
         # Editor without can_publish: the retract confirm is denied and
@@ -717,9 +729,16 @@ class BotTestCase(unittest.TestCase):
         self.app.handle_update(
             callback_update(ADMIN, f"out_publish:{web['id']}"))
         self.assertEqual(
+            self.store.get_output(web["id"])["status"], "APPROVED_WAITING")
+        self.assertEqual(
+            len(self.store.audit_entries("publish_requested")), 1)
+        self.store.set_output_public_url(
+            web["id"], "https://example.com/bai-viet")
+        self.store.sync_task_status_from_outputs(code)
+        self.assertEqual(
             self.store.get_output(web["id"])["status"], "PUBLISHED")
         self.assertEqual(len(self.store.audit_entries("approve_output")), 1)
-        self.assertEqual(len(self.store.audit_entries("publish_output")), 1)
+        self.assertEqual(len(self.store.audit_entries("publish_output")), 0)
         # The other channels and the parent task are untouched.
         outputs = self.outputs_by_channel(code)
         self.assertEqual(outputs["facebook"]["status"], "DRAFT")

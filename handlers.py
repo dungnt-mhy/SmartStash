@@ -2197,23 +2197,25 @@ class BotApp:
                          "Thẻ kênh này chưa ở trạng thái chờ đăng.",
                          show_alert=True)
             return
-        self.store.set_output_status(output["id"], STATUS_PUBLISHED)
-        self.store.audit(user["telegram_id"], "publish_output", "output",
-                         output["id"],
-                         detail=f"task={task['code']} channel={output['channel']}")
-        self.store.sync_task_status_from_outputs(task["code"])
-        self._answer(callback_id, "Đã đăng.")
+        # Owner's flow: the 🚀 Đăng button is the final go-ahead,
+        # NOT the publish itself. Muse performs the real publish
+        # and completes it via botctl set-output-published, which
+        # sends the ONE success notification carrying the article
+        # link. Flipping to PUBLISHED here claimed a post that did
+        # not exist (no link) and spawned a second "đăng" card.
+        self.store.audit(user["telegram_id"], "publish_requested",
+                         "output", output["id"],
+                         detail=f"task={task['code']} "
+                                f"channel={output['channel']}")
+        self._answer(callback_id,
+                     "⏳ Đã nhận lệnh đăng — Muse sẽ đăng ngay và "
+                     "gửi link bài khi xong.")
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])
-        updated = self.store.get_output(output["id"])
-        self._notify_output_creator(
-            updated, task, prefix=f"🚀 Thẻ kênh {label} của bạn đã được đăng:")
-        for admin in self.store.admins():
-            if admin["telegram_id"] != user["telegram_id"]:
-                self._send(
-                    admin["chat_id"],
-                    f"🚀 Thẻ kênh {label} của việc {task['code']} "
-                    f"vừa được đăng bởi {user['display_name']}.")
+        self._send(chat_id,
+                   f"⏳ Đã nhận lệnh đăng thẻ kênh {label} của việc "
+                   f"{task['code']}. Muse đang đăng — link bài sẽ "
+                   "được gửi ngay khi đăng xong.")
 
     def _output_retract_start(self, callback_id, user, chat_id, output, task):
         if output["status"] != STATUS_PUBLISHED:

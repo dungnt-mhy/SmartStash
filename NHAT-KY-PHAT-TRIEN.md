@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Luồng Đăng bài: một nút Đăng, một thông báo thành công kèm link
+- **Hạng mục:** Quy trình đăng bài / trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án phản ánh bấm Đăng thì hiện 2 lần "đăng" và yêu cầu "thông báo đã đăng thành công và gửi link bài". Kiểm tra tận gốc: nút 🚀 Đăng cũ tự lật trạng thái sang PUBLISHED và báo "đã đăng" dù CHƯA có bài thật và không có link (CV-0005 Facebook bị lật oan lúc 13:35, public_url trống — đã đưa về APPROVED_WAITING kèm audit `revert_hollow_publish`). Nay: nút Đăng chỉ ghi nhận lệnh đăng (audit `publish_requested`) + đúng 1 tin nhận lệnh; Muse đăng thật rồi hoàn tất bằng `botctl set-output-published <link>` — lệnh này nay gửi đúng 1 thông báo "✅ Đã đăng thành công" kèm thẻ kênh chứa link bài cho người tạo + quản trị (đã khử trùng người nhận).
+- **Trạng thái:** Đã xong. Kiểm thử 92/92 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Thông báo "Phiên giao việc đã kết thúc": bỏ hộp thoại, chuyển thành toast nhẹ
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án chê hộp thoại cảnh báo (modal alert) khi bấm nút của phiên giao việc đã đóng. Cả 5 chỗ trả lời "Phiên giao việc đã kết thúc" chuyển từ alert modal sang **toast nhỏ** kèm câu chữ thân thiện: "⌛ Phiên giao việc này đã kết thúc. 📝 Bấm Giao việc mới để bắt đầu việc khác." Các cảnh báo quan trọng (quyền, trạng thái) vẫn giữ dạng hộp thoại để gây chú ý.

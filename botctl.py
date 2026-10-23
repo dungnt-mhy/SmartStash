@@ -83,7 +83,7 @@ def output_to_dict(output) -> dict:
     }
 
 
-def _notify_output(store, client, task, output, user_rows):
+def _notify_output(store, client, task, output, user_rows, prefix=""):
     """Send the channel card to each recipient; warns instead of failing."""
     if client is None:
         return
@@ -92,7 +92,8 @@ def _notify_output(store, client, task, output, user_rows):
         if row["chat_id"] is None:
             continue
         try:
-            app.send_output_card(row["chat_id"], output, task, row)
+            app.send_output_card(row["chat_id"], output, task, row,
+                                 prefix=prefix)
         except Exception as exc:
             print(f"Cảnh báo: không gửi được thẻ kênh tới "
                   f"{row['telegram_id']}: {exc}", file=sys.stderr)
@@ -561,8 +562,13 @@ def cmd_set_output_published(store, args) -> int:
     store.sync_task_status_from_outputs(args.task_code)
     client = build_client_or_warn(args.no_notify)
     output = store.get_output(output["id"])
+    from storage import CHANNELS
+    label = CHANNELS.get(output["channel"], {}).get(
+        "label", output["channel"])
     _notify_output(store, client, task, output,
-                   _recipients_for_published(store, task))
+                   _recipients_for_published(store, task),
+                   prefix=f"✅ Đã đăng thành công — thẻ kênh {label} "
+                          f"của việc {args.task_code}:")
     print(f"Đã đánh dấu đầu ra {args.channel} của {args.task_code} "
           f"là PUBLISHED: {args.public_url}")
     return 0
