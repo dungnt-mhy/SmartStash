@@ -520,13 +520,25 @@ def cmd_attach_output_draft(store, args) -> int:
         photos = sorted(files_dir.glob("*")) if files_dir.is_dir() else []
         if photos and not getattr(args, "no_images", False):
             host = ImageHost(DEFAULT_DATA_DIR / "image-host.json")
-            for photo in photos:
+
+            def _host_one(photo):
                 try:
-                    image_urls.append(host.upload(
-                        photo, f"draft-media/{task['code']}/{photo.name}"))
+                    return host.upload(
+                        photo, f"draft-media/{task['code']}/{photo.name}")
                 except Exception as exc:
                     print(f"Cảnh báo: không tải được ảnh {photo.name} "
                           f"lên kho ảnh: {exc}", file=sys.stderr)
+                    return None
+
+            # Uploads are independent network calls — run them in
+            # parallel (order preserved) instead of one after another.
+            if len(photos) == 1:
+                hosted = [_host_one(photos[0])]
+            else:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    hosted = list(pool.map(_host_one, photos))
+            image_urls = [url for url in hosted if url]
         publisher = Telegraph(DEFAULT_DATA_DIR / "telegraph.json")
         try:
             ref = publisher.publish(

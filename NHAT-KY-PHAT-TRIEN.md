@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Tăng tốc gắn nháp: tải ảnh song song + quét việc mới mỗi 30 giây
+- **Hạng mục:** Hiệu năng
+- **Thay đổi:** Chủ dự án nhận xét tạo bài qua telegra.ph "mất khá nhiều time". Đo thực tế: bản thân telegra.ph rất nhanh (gắn lại 1 đầu ra gồm sửa trang + nhúng ảnh đã lưu cache chỉ ~1 giây). Phần chậm nằm ở (1) chờ bộ quét phát hiện việc mới (chu kỳ 60 giây) và (2) tải ảnh MỚI lên GitHub nối tiếp từng ảnh. Đã sửa cả hai: chu kỳ quét giảm còn 30 giây; botctl tải các ảnh của một việc song song (tối đa 4 luồng, giữ nguyên thứ tự ảnh; ImageHost thêm khóa an toàn cho cache).
+- **Trạng thái:** Đã xong. Kiểm thử 102/102 đạt.
+
 ### 2026-10-23 — Nút bấm phân vai rõ ràng: thẻ của Admin không còn Gửi duyệt / Duyệt / Trả lại
 - **Hạng mục:** Phân quyền / trải nghiệm người dùng
 - **Thay đổi:** Chủ dự án chốt lại: "Admin tự tạo bài thì không cần gửi duyệt, duyệt, và trả lại — cần phân vai và nút rõ ràng". Trước đó thẻ việc của chính Admin vẫn còn nút ↩️ Trả lại (do hàng nút của người duyệt). Nay: Admin xem thẻ kênh của việc do mình tạo (Nháp / Bị trả / Chờ duyệt cũ) chỉ còn 2 nút [🚀 Đăng] (khi đã có nháp) và [🗑 Hủy bài] — không Gửi duyệt, không Duyệt, không Trả lại. Các vai khác giữ nguyên: người tạo thường có Gửi duyệt; người duyệt xem việc của người khác vẫn đủ Duyệt / Trả lại / Hủy bài. Bấm Đăng từ trạng thái Chờ duyệt cũ của việc Admin cũng đi đường tắt như Nháp.

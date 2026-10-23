@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import threading
 import json
 import sys
 import urllib.error
@@ -44,6 +45,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class ImageHost:
     def __init__(self, cache_file):
         self._cache_file = Path(cache_file)
+        self._cache_lock = threading.Lock()
         self._cache = {}
         if self._cache_file.is_file():
             try:
@@ -86,8 +88,9 @@ class ImageHost:
         public URL. Identical bytes are uploaded only once."""
         data = Path(file_path).read_bytes()
         digest = hashlib.sha256(data).hexdigest()
-        if digest in self._cache:
-            return self._cache[digest]["url"]
+        with self._cache_lock:
+            if digest in self._cache:
+                return self._cache[digest]["url"]
         api_path = f"/repos/{REPO}/contents/{dest_path}"
         status, existing = self._api("GET", api_path)
         payload = {
@@ -103,6 +106,7 @@ class ImageHost:
                 f"GitHub upload failed ({status}): "
                 f"{result.get('message', '') if isinstance(result, dict) else ''}")
         url = result["content"]["download_url"]
-        self._cache[digest] = {"url": url, "dest": dest_path}
-        self._save()
+        with self._cache_lock:
+            self._cache[digest] = {"url": url, "dest": dest_path}
+            self._save()
         return url
