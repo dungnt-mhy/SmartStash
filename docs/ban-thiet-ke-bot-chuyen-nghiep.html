@@ -518,23 +518,23 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
               <li>Cài <code>setMyCommands</code> theo vai + ghim nút Menu kiểu lệnh</li>
               <li>Bàn phím chính theo vai, ghim cố định sau <code>/start</code></li>
               <li>Chuẩn hoá mã <code>callback_data</code> ≤64 byte + sửa thẻ tại chỗ</li>
-              <li><code>/stats</code> dạng chữ + đổi kỳ bằng nút inline</li>
+              <li class="done">/stats dạng chữ + đổi kỳ bằng nút inline (hoàn thiện ở Giai đoạn 2)</li>
               <li>Hồ sơ bot: mô tả, giới thiệu ngắn, ảnh đại diện</li>
             </ul>
           </div>
           <div class="card" style="margin:0">
-            <h4 style="margin:0 0 4px">Giai đoạn 2 — Kênh Video trong Telegram</h4>
+            <h4 style="margin:0 0 4px">Giai đoạn 2 — Kênh Video trong Telegram ✅ ĐÃ XONG (2026-10-23)</h4>
             <p class="kbd-note" style="margin:0 0 6px">Thêm đầu ra video vào đúng kiến trúc thẻ kênh hiện có</p>
             <ul class="checklist">
-              <li>Hai thẻ kênh mới: Video dọc 9:16 và Video ngang 16:9, mỗi thẻ duyệt/đăng riêng</li>
-              <li>Muse dựng video nháp từ tư liệu gốc của việc (ghép ảnh + chữ + nhạc nền; cảnh AI khi cần)</li>
-              <li>Gửi video nháp vào Telegram xem trước; duyệt trên thẻ kênh Video mới được đăng</li>
-              <li>Thống kê bổ sung: số video đã tạo, đã đăng theo từng nền tảng</li>
-              <li>Nút xuất biểu đồ PNG và file Excel/CSV trong <code>/stats</code></li>
-              <li>Bản tổng kết ngày tự gửi + bảng tin ghim trong nhóm đội</li>
-              <li>Link mời theo vai trò bằng deep link <code>?start=</code></li>
-              <li>Hàng đợi gửi tin có bóp tốc độ theo từng chat, tôn trọng <code>retry_after</code></li>
-              <li>Thử Rich Messages cho báo cáo trên thiết bị thật của đội</li>
+              <li class="done">Hai thẻ kênh mới: Video dọc 9:16 và Video ngang 16:9, mỗi thẻ duyệt/đăng riêng</li>
+              <li class="done">Muse dựng video nháp từ tư liệu gốc của việc (ghép ảnh + chữ + nhạc nền; cảnh AI khi cần)</li>
+              <li class="done">Gửi video nháp vào Telegram xem trước; duyệt trên thẻ kênh Video mới được đăng</li>
+              <li class="done">Thống kê bổ sung: số video đã tạo, đã đăng theo từng nền tảng</li>
+              <li class="done">Nút xuất biểu đồ PNG và file Excel/CSV trong <code>/stats</code></li>
+              <li class="done">Bản tổng kết ngày tự gửi lúc 20:00 cho Admin (bản "ghim trong nhóm đội" để sau — đội đang làm việc qua chat riêng 1–1)</li>
+              <li>Link mời theo vai trò bằng deep link <code>?start=</code> — chưa làm, để đợt sau</li>
+              <li>Hàng đợi gửi tin có bóp tốc độ theo từng chat, tôn trọng <code>retry_after</code> — chưa làm, để đợt sau</li>
+              <li>Thử Rich Messages cho báo cáo trên thiết bị thật của đội — chưa thử, để đợt sau</li>
             </ul>
           </div>
           <div class="card" style="margin:0">
@@ -615,8 +615,34 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
         </div>
       </section>
 
+      <section id="phase2-final">
+        <div class="sec-head"><span class="sec-num">12</span><h2>Phụ lục — Giai đoạn 2 đã triển khai: Kênh Video + Thống kê đầy đủ</h2></div>
+        <p class="kbd-note">Hoàn thiện ngày 2026-10-23, kiểm thử 215/215 đạt và đang chạy trên bot thật. Chủ dự án chốt thứ tự: kênh Video trước, thống kê sau.</p>
+        <div class="grid2">
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Kênh Video (🎬 Video dọc · 🎞 Video ngang)</h4>
+            <ul class="checklist">
+              <li class="done">Kích hoạt <code>video_vertical</code> (9:16 — TikTok/Shorts/Reels) và <code>video_horizontal</code> (16:9 — YouTube) như kênh đăng thật theo Phương án A: mỗi đầu ra một thẻ kênh riêng, vòng đời Nháp → Chờ duyệt → Chờ đăng → Đã đăng như kênh chữ</li>
+              <li class="done">Chọn kênh ở <b>wizard Bước 3</b> và trên <b>thẻ việc</b> đúng chuẩn nút chọn kênh (icon + tên; bỏ chọn → ❌; không "Chọn tất cả"); mặc định vẫn 3 kênh chữ, video là chọn thêm; hàng nút tách 3 + 2</li>
+              <li class="done">Phân vai nút y hệt kênh chữ: việc của Admin [🚀 Đăng] / [🕐 Đặt lịch đăng] / [✏️ Sửa lại · 🗑 Hủy bài]; người tạo thường [📤 Gửi duyệt] / [✏️ Sửa lại]; người duyệt đủ Duyệt / Trả lại / Hủy bài. Đặt lịch đăng dùng chung cơ chế (kể cả cảnh báo đăng sát nhau)</li>
+              <li class="done">Lệnh mới <code>botctl attach-output-video &lt;mã việc&gt; &lt;kênh&gt; &lt;file video&gt;</code>: thẻ kênh được gửi <b>dưới dạng tin nhắn video</b> — xem và duyệt video nháp ngay trong Telegram; lần đầu tải file lên, các lần sau dùng lại <code>file_id</code>; sửa thẻ video qua <code>editMessageCaption</code></li>
+              <li class="done">Nút Đăng của kênh video ở giai đoạn này chỉ ghi lệnh <code>publish_requested</code> — đăng thật YouTube/TikTok là Giai đoạn 3; clip gửi qua Telegram cũng được nhận làm tư liệu đầu vào</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Thống kê đầy đủ trong <code>/thongke</code></h4>
+            <ul class="checklist">
+              <li class="done"><b>Chuyển kỳ bằng nút inline</b>: 📅 Hôm nay / 🗓 Tuần này (thứ Hai–Chủ nhật) / 📆 Tháng này / ♾ Tất cả — sửa tại chỗ cùng tin nhắn, kỳ đang xem có dấu •</li>
+              <li class="done">Đếm việc + đầu ra theo trạng thái, theo kênh (gồm cả kênh video, có dòng riêng 🎬 số video nháp đã dựng · số đã đăng tách dọc/ngang) và <b>theo người tạo</b></li>
+              <li class="done">Nút <b>🖼 Biểu đồ</b> gửi ảnh PNG (đầu ra theo trạng thái / theo kênh, vẽ bằng matplotlib), nút <b>📥 Xuất CSV</b> và <b>📗 Xuất Excel</b> gửi file danh sách việc/đầu ra theo đúng kỳ đang xem</li>
+              <li class="done"><b>Tổng kết ngày tự động 20:00</b> giờ Việt Nam gửi cho các Admin: việc tạo hôm nay · đầu ra đã đăng hôm nay · đang chờ duyệt · đang chờ đăng — mỗi ngày đúng 1 lần (mốc lưu trong <code>bot_meta</code>, khởi động lại không gửi trùng)</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section id="sources">
-        <div class="sec-head"><span class="sec-num">12</span><h2>Nguồn đối chiếu</h2></div>
+        <div class="sec-head"><span class="sec-num">13</span><h2>Nguồn đối chiếu</h2></div>
         <p class="sec-sub">Toàn bộ cơ chế và con số trong bản thiết kế lấy từ tài liệu chính thức của Telegram (đọc ngày 22–23/10/2026), hai nguồn phụ được ghi rõ khi dùng.</p>
         <ul class="src-list">
           <li>Telegram Bot API — tài liệu tham chiếu chính thức (phiên bản 10.3): <a href="https://core.telegram.org/bots/api">https://core.telegram.org/bots/api</a></li>

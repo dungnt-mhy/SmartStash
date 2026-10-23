@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 import roles
+import stats as stats_mod
 from storage import (
     CHANNELS,
     CHANNEL_ORDER,
@@ -34,11 +35,16 @@ STATUS_LABELS = {
     STATUS_RETRACTED: "Đã thu hồi (RETRACTED)",
 }
 
-#: Publish destinations, in display order: (key, icon, name).
+#: Publish destinations, in display order: (key, icon, name). The
+#: two video channels joined the picker in Phase 2 (2026-10-23) —
+#: they are opt-in per task (never in DEFAULT_DESTINATIONS), like
+#: the design's per-task channel model.
 DESTINATIONS = (
     ("website", "🌐", "Website"),
     ("facebook", "📘", "Facebook"),
     ("instagram", "📸", "Instagram"),
+    ("video_vertical", "🎬", "Video dọc"),
+    ("video_horizontal", "🎞", "Video ngang"),
 )
 DESTINATION_KEYS = tuple(key for key, _icon, _name in DESTINATIONS)
 DESTINATION_LABELS = {key: f"{icon} {name}"
@@ -57,10 +63,24 @@ FB_PUBLISH_TARGETS = {
 def _dest_btn_text(key, chosen):
     """Channel-picker button text (owner's model): a chosen channel
     shows its own icon + name; tapping it swaps the icon for ❌.
-    There is no separate select-all button — only 3 channels."""
+    There is no separate select-all button."""
     if key in chosen:
         return DESTINATION_LABELS[key]
     return f"❌ {DESTINATION_NAMES[key]}"
+
+
+def _dest_button_rows(chosen, make_data):
+    """Channel-picker buttons laid out three to a row (text channels
+    first, then the two video channels), shared by the wizard's
+    step 3 and the task card's channel block."""
+    keys = [key for key, _icon, _name in DESTINATIONS]
+    rows = []
+    for start in range(0, len(keys), 3):
+        rows.append([
+            _btn(_dest_btn_text(key, chosen), make_data(key))
+            for key in keys[start:start + 3]
+        ])
+    return rows
 
 
 def task_destinations(task):
@@ -106,7 +126,7 @@ HELP_TEXT = (
     "/viec — xem danh sách việc\n"
     "/choduyet — việc đang chờ duyệt (người duyệt)\n"
     "/lichdang — bài đang đặt lịch đăng (người duyệt)\n"
-    "/thongke — thống kê việc (người duyệt)\n"
+    "/thongke — thống kê theo kỳ + biểu đồ + xuất CSV/Excel (người duyệt)\n"
     "/vaitro — xem danh sách vai trò\n"
     "/capquyen — cấp quyền (Admin / Phó Admin)\n"
     "/thuhoi — thu hồi quyền (Admin / Phó Admin)\n"
@@ -338,18 +358,29 @@ class BotApp:
     def _edit_card(self, chat_id, message_id, text, reply_markup=None):
         """Edit a card message in place. A missing keyboard means the
         card is closed, so an empty inline keyboard is sent to strip
-        any buttons the old card still shows."""
+        any buttons the old card still shows.
+
+        Video cards are media messages: Telegram refuses
+        editMessageText on them, their text lives in the caption —
+        so a failed text edit falls back to editMessageCaption."""
         if chat_id is None or message_id is None:
             return None
+        markup = reply_markup if reply_markup is not None \
+            else {"inline_keyboard": []}
         fn = getattr(self.api, "edit_message_text", None)
-        if fn is None:
+        if fn is not None:
+            try:
+                result = fn(chat_id, message_id, text,
+                            reply_markup=markup)
+                if result is not None:
+                    return result
+            except Exception:
+                pass
+        cap = getattr(self.api, "edit_message_caption", None)
+        if cap is None:
             return None
         try:
-            return fn(
-                chat_id, message_id, text,
-                reply_markup=reply_markup if reply_markup is not None
-                else {"inline_keyboard": []},
-            )
+            return cap(chat_id, message_id, text, reply_markup=markup)
         except Exception:
             return None
 
@@ -492,6 +523,11 @@ class BotApp:
         if photos:
             biggest = photos[-1]  # Telegram sends ascending sizes
             return {"type": "photo", "file_id": biggest["file_id"]}
+        video = message.get("video")
+        if video:
+            # Source clips for the video channels arrive as ordinary
+            # video messages; they join the same intake as photos.
+            return {"type": "video", "file_id": video["file_id"]}
         document = message.get("document")
         if document:
             return {
@@ -514,9 +550,11 @@ class BotApp:
             return
         self.store.buffer_add(chat_id, user["telegram_id"], item, caption)
         buffered = self.store.buffer_get(chat_id, user["telegram_id"])
+        kind_label = {"photo": "ảnh", "video": "video",
+                      "document": "tài liệu"}.get(item["type"], "tài liệu")
         self._send(
             chat_id,
-            f"Đã nhận {item['type'] == 'photo' and 'ảnh' or 'tài liệu'} "
+            f"Đã nhận {kind_label} "
             f"(tổng {len(buffered['items'])} file). "
             "Gửi thêm nếu cần, hoặc nhắn một tin nhắn văn bản "
             "(gợi ý / nội dung) để chốt tạo việc.",
@@ -696,13 +734,8 @@ class BotApp:
             pending = self._dest_pending(viewer, task)
             chosen = pending if pending is not None \
                 else task_destinations(task)
-            rows.append([
-                _btn(
-                    _dest_btn_text(key, chosen),
-                    f"task_dest:{code}:{key}",
-                )
-                for key, _icon, _name in DESTINATIONS
-            ])
+            rows.extend(_dest_button_rows(
+                chosen, lambda key: f"task_dest:{code}:{key}"))
         elif live_outputs:
             rows.append([_btn("📋 Thẻ các kênh", f"task_outputs:{code}")])
         bottom = []
@@ -1019,25 +1052,26 @@ class BotApp:
         lines.append("Mở thẻ việc trong cuộc trò chuyện để duyệt hoặc trả lại.")
         self._send(chat_id, "\n".join(lines))
 
-    def _cmd_thongke(self, user, tg_user, chat_id):
-        if user is None or not roles.can_review(user["role"]):
-            self._send(chat_id, "⛔ Bạn không có quyền xem thống kê.")
-            return
-        task_counts = self.store.count_tasks_by_status()
-        total = sum(task_counts.values())
-        lines = [f"📊 Thống kê việc (tổng {total} việc):"]
-        for status in (STATUS_DRAFT, STATUS_PENDING, STATUS_APPROVED_WAITING,
-                       STATUS_PUBLISHED, STATUS_REJECTED, STATUS_CANCELLED,
+    # --------------------------------------------------------- statistics
+    def _stats_text(self, period: str) -> str:
+        """The /thongke overview for one period: tasks and outputs
+        counted by status and channel, the video numbers the design
+        asks for, and a per-creator breakdown."""
+        data = stats_mod.collect_stats(self.store, period)
+        lines = [
+            f"📊 Thống kê việc — {data['label']} "
+            f"(tổng {len(data['tasks'])} việc):"
+        ]
+        for status in (STATUS_DRAFT, STATUS_PENDING,
+                       STATUS_APPROVED_WAITING, STATUS_PUBLISHED,
+                       STATUS_REJECTED, STATUS_CANCELLED,
                        STATUS_RETRACTED):
-            if task_counts.get(status):
+            n = data["task_status_counts"].get(status)
+            if n:
                 lines.append(
-                    f"• {STATUS_LABELS.get(status, status)}: {task_counts[status]}"
-                )
-        out_counts = self.store.count_outputs_by_status()
-        if out_counts:
-            by_channel = {}
-            for channel, status, n in out_counts:
-                by_channel.setdefault(channel, []).append((status, n))
+                    f"• {STATUS_LABELS.get(status, status)}: {n}")
+        by_channel = data["output_channel_status"]
+        if by_channel:
             lines.append("")
             lines.append("Đầu ra theo kênh:")
             for channel in CHANNEL_ORDER:
@@ -1046,10 +1080,148 @@ class BotApp:
                 label = CHANNELS.get(channel, {}).get("label", channel)
                 parts = ", ".join(
                     f"{STATUS_LABELS.get(s, s)}: {n}"
-                    for s, n in by_channel[channel]
+                    for s, n in by_channel[channel].items()
                 )
                 lines.append(f"• {label}: {parts}")
-        self._send(chat_id, "\n".join(lines))
+        video = data["video"]
+        lines.append("")
+        lines.append(
+            f"🎬 Video: đã dựng {video['drafted']} video nháp · "
+            f"đã đăng {video['published']} "
+            f"(dọc {video['published_vertical']} · "
+            f"ngang {video['published_horizontal']})")
+        if data["per_creator"]:
+            lines.append("")
+            lines.append("Theo người tạo:")
+            for row in data["per_creator"]:
+                lines.append(
+                    f"• {row['name']}: {row['tasks']} việc · "
+                    f"{row['published']} đầu ra đã đăng")
+        return "\n".join(lines)
+
+    def _stats_keyboard(self, period: str):
+        """Period switcher (the current period is marked •) plus
+        the chart / export buttons for the SAME period."""
+        row = [
+            _btn(
+                ("• " if key == period else "")
+                + stats_mod.PERIOD_BUTTON_LABELS[key],
+                f"stats:{key}")
+            for key in stats_mod.PERIODS
+        ]
+        return _keyboard([
+            row,
+            [
+                _btn("🖼 Biểu đồ", f"stats_chart:{period}"),
+                _btn("📥 Xuất CSV", f"stats_csv:{period}"),
+                _btn("📗 Xuất Excel", f"stats_xlsx:{period}"),
+            ],
+        ])
+
+    def _cmd_thongke(self, user, tg_user, chat_id):
+        if user is None or not roles.can_review(user["role"]):
+            self._send(chat_id, "⛔ Bạn không có quyền xem thống kê.")
+            return
+        # Default period is "all" — the overview this command has
+        # always shown; the buttons switch the period in place.
+        self._send(chat_id, self._stats_text("all"),
+                   reply_markup=self._stats_keyboard("all"))
+
+    def _cb_stats(self, callback_id, user, chat_id, period, message_id):
+        if user is None or not roles.can_review(user["role"]):
+            self._answer(callback_id, "⛔ Bạn không có quyền xem "
+                                      "thống kê.", show_alert=True)
+            return
+        if period not in stats_mod.PERIODS:
+            self._answer(callback_id, "Kỳ thống kê không hợp lệ.")
+            return
+        self._answer(callback_id)
+        self._edit_card(chat_id, message_id, self._stats_text(period),
+                        reply_markup=self._stats_keyboard(period))
+
+    def _cb_stats_file(self, callback_id, user, chat_id, kind, period):
+        """Chart PNG / CSV / Excel export for one stats period,
+        generated on the spot and sent as a Telegram file."""
+        if user is None or not roles.can_review(user["role"]):
+            self._answer(callback_id, "⛔ Bạn không có quyền xem "
+                                      "thống kê.", show_alert=True)
+            return
+        if period not in stats_mod.PERIODS:
+            self._answer(callback_id, "Kỳ thống kê không hợp lệ.")
+            return
+        import tempfile
+
+        data = stats_mod.collect_stats(self.store, period)
+        slug = {"today": "hom-nay", "week": "tuan-nay",
+                "month": "thang-nay", "all": "tat-ca"}[period]
+        tmp = Path(tempfile.gettempdir())
+        try:
+            if kind == "chart":
+                path = tmp / f"thongke-bieu-do-{slug}.png"
+                stats_mod.write_chart_png(data, path)
+                self.api.send_photo(
+                    chat_id, path,
+                    caption=f"🖼 Biểu đồ thống kê — {data['label']}")
+            elif kind == "csv":
+                path = tmp / f"thongke-{slug}.csv"
+                stats_mod.write_csv(data["export_rows"], path)
+                self.api.send_document(
+                    chat_id, path,
+                    caption=f"📥 Thống kê việc — {data['label']} "
+                            f"({len(data['export_rows'])} dòng)")
+            else:
+                path = tmp / f"thongke-{slug}.xlsx"
+                stats_mod.write_xlsx(data["export_rows"], path)
+                self.api.send_document(
+                    chat_id, path,
+                    caption=f"📗 Thống kê việc — {data['label']} "
+                            f"({len(data['export_rows'])} dòng)")
+        except Exception as exc:
+            self._answer(callback_id,
+                         f"Không tạo được file: {exc}", show_alert=True)
+            return
+        self._answer(callback_id, "Đã gửi file bên dưới 👇")
+
+    def maybe_send_daily_summary(self, now=None):
+        """The design's 20:00 daily digest: once a day, after
+        20:00 Vietnam time, every Admin gets today's numbers. The
+        sent date lives in bot_meta so a restart never re-sends.
+        Returns True when a summary was sent."""
+        from datetime import datetime
+
+        ict = _ict_tz()
+        now = now or datetime.now(ict)
+        if now.hour < 20:
+            return False
+        today = now.strftime("%Y-%m-%d")
+        if self.store.get_meta("daily_summary_date") == today:
+            return False
+        start, end = stats_mod.today_bounds_utc(now)
+        created = len(self.store.tasks_created_between(start, end))
+        published = len(
+            self.store.outputs_published_between(start, end))
+        pending = approved = 0
+        for _channel, status, n in self.store.count_outputs_by_status():
+            if status == STATUS_PENDING:
+                pending += n
+            elif status == STATUS_APPROVED_WAITING:
+                approved += n
+        text = "\n".join([
+            f"🌆 Tổng kết ngày {now.strftime('%d/%m/%Y')}:",
+            f"🗂 Việc tạo hôm nay: {created}",
+            f"🚀 Đầu ra đã đăng hôm nay: {published}",
+            f"⏳ Đang chờ duyệt: {pending} đầu ra",
+            f"🕐 Đang chờ đăng: {approved} đầu ra",
+        ])
+        sent_any = False
+        for admin in self.store.admins():
+            try:
+                self._send(admin["chat_id"], text)
+                sent_any = True
+            except Exception:
+                continue
+        self.store.set_meta("daily_summary_date", today)
+        return sent_any
 
     # ------------------------------------------- main keyboard label taps
     def _handle_keyboard_label(self, user, tg_user, chat_id, text) -> bool:
@@ -1183,13 +1355,7 @@ class BotApp:
 
     def _wizard_channels_keyboard(self, payload):
         chosen = payload.get("destinations") or []
-        rows = [[
-            _btn(
-                _dest_btn_text(key, chosen),
-                f"wiz_dest:{key}",
-            )
-            for key, _icon, _name in DESTINATIONS
-        ]]
+        rows = _dest_button_rows(chosen, lambda key: f"wiz_dest:{key}")
         rows.append([_btn("✏️ Sửa nội dung gợi ý", "wiz_hint")])
         rows.append([
             _btn("🚀 Chốt! Gửi Muse", "wiz_create"),
@@ -1209,8 +1375,10 @@ class BotApp:
             chat_id,
             "Bước 3/3: Chọn nơi đăng cho việc này, rồi bấm "
             "🚀 Chốt! Gửi Muse.\n" + hint_line
-            + "\n📌 Mặc định đang chọn cả 3 nơi đăng — chạm vào "
-              "từng kênh để bỏ chọn nếu không cần.",
+            + "\n📌 Mặc định đang chọn cả 3 nơi đăng (Website · "
+              "Facebook · Instagram) — chạm vào từng kênh để bỏ "
+              "chọn nếu không cần; muốn Muse dựng thêm video thì "
+              "chạm 🎬 Video dọc / 🎞 Video ngang để chọn thêm.",
             reply_markup=self._wizard_channels_keyboard(payload),
         )
 
@@ -1418,6 +1586,18 @@ class BotApp:
             self._cb_wizard_create(callback_id, user, chat_id)
         elif data == "wiz_cancel":
             self._cb_wizard_cancel(callback_id, user, chat_id)
+        elif data.startswith("stats_chart:"):
+            self._cb_stats_file(callback_id, user, chat_id, "chart",
+                                data.split(":", 1)[1])
+        elif data.startswith("stats_csv:"):
+            self._cb_stats_file(callback_id, user, chat_id, "csv",
+                                data.split(":", 1)[1])
+        elif data.startswith("stats_xlsx:"):
+            self._cb_stats_file(callback_id, user, chat_id, "xlsx",
+                                data.split(":", 1)[1])
+        elif data.startswith("stats:"):
+            self._cb_stats(callback_id, user, chat_id,
+                           data.split(":", 1)[1], message_id)
         elif data.startswith("task_outputs:"):
             self._cb_task_outputs(
                 callback_id, user, chat_id, data.split(":", 1)[1])
@@ -2011,7 +2191,15 @@ class BotApp:
             f"💡 {hint or '(không có)'}",
         ]
         if output["draft_ref"]:
-            lines.append(f"📄 Bản nháp: {output['draft_ref']}")
+            if kind == "video":
+                # The draft video rides ON this card (sent as a
+                # video message) — reviewers watch it right here,
+                # no external link.
+                lines.append(
+                    "🎬 Video nháp: đã gắn — xem video ngay trên "
+                    "thẻ này")
+            else:
+                lines.append(f"📄 Bản nháp: {output['draft_ref']}")
         if output["scheduled_at"]:
             lines.append(
                 f"🕐 Lịch đăng: {_format_created(output['scheduled_at'])}")
@@ -2114,6 +2302,21 @@ class BotApp:
                 reply_markup=self.output_keyboard(updated, user))
         return updated
 
+    def _output_video_ref(self, output):
+        """What to hand sendVideo for a video output's card: the
+        cached Telegram file_id when one exists (no re-upload),
+        else the local draft-video path, else None (plain text
+        card — the video has not been attached yet)."""
+        meta = CHANNELS.get(output["channel"], {})
+        if meta.get("kind") != "video":
+            return None
+        keys = output.keys()
+        if "draft_file_id" in keys and output["draft_file_id"]:
+            return output["draft_file_id"]
+        if "draft_video_path" in keys and output["draft_video_path"]:
+            return output["draft_video_path"]
+        return None
+
     def send_output_card(self, chat_id, output, task, viewer, prefix=""):
         text = (prefix + "\n" if prefix else "") + \
             self.output_card_text(output, task)
@@ -2121,13 +2324,40 @@ class BotApp:
         # in this chat: freeze the old ones first so no stale action
         # button (e.g. Đăng on an already-published card) survives.
         self._freeze_stale_output_cards(chat_id, output, task)
-        result = self._send(
-            chat_id, text,
-            reply_markup=self.output_keyboard(output, viewer))
+        markup = self.output_keyboard(output, viewer)
+        result = None
+        video_ref = self._output_video_ref(output)
+        if video_ref:
+            # Video channel with a draft attached: the card IS the
+            # video message — the reviewer watches the draft right
+            # in Telegram, buttons under the video.
+            send_video = getattr(self.api, "send_video", None)
+            if send_video is not None:
+                try:
+                    result = send_video(
+                        chat_id, video_ref, caption=text[:1024],
+                        reply_markup=markup)
+                except Exception:
+                    result = None
+        if result is None:
+            result = self._send(chat_id, text, reply_markup=markup)
         message_id = None
         if isinstance(result, dict):
             message_id = result.get("message_id") or \
                 (result.get("result") or {}).get("message_id")
+            # Cache the uploaded video's file_id so the next card
+            # for this output re-sends instantly, without uploading
+            # the file again.
+            video_obj = result.get("video") or \
+                (result.get("result") or {}).get("video")
+            if video_obj and video_obj.get("file_id") and not (
+                    "draft_file_id" in output.keys()
+                    and output["draft_file_id"]):
+                try:
+                    self.store.set_output_file_id(
+                        output["id"], video_obj["file_id"])
+                except Exception:
+                    pass
         if message_id:
             self.store.record_output_card(
                 output["id"], chat_id, message_id,

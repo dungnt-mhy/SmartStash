@@ -208,11 +208,22 @@ DRAFT / PENDING → CANCELLED (bỏ chọn kênh, hoặc việc gốc bị thu h
 
 Các kênh được định nghĩa sẵn trong `CHANNELS` (ở `storage.py`) theo
 kiểu dữ liệu danh sách: `website` (bài báo), `facebook` (post),
-`instagram` (carousel). Hai kênh **`video_vertical` (Video dọc)** và
-**`video_horizontal` (Video ngang)** cũng đã được định nghĩa trước cho
-giai đoạn làm video sau này, nhưng hiện **chưa được tự tạo** từ danh
-sách nơi đăng — nơi đăng hiện tại vẫn chỉ gồm Website, Facebook,
-Instagram.
+`instagram` (carousel). Từ Giai đoạn 2 (2026-10-23), hai kênh
+**`video_vertical` (🎬 Video dọc 9:16)** và **`video_horizontal`
+(🎞 Video ngang 16:9)** đã được **kích hoạt**: chọn thêm trong wizard
+Bước 3 hoặc trên thẻ việc (không nằm trong mặc định 3 kênh chữ), mỗi
+kênh có thẻ kênh riêng; Muse dựng video nháp từ tư liệu gốc rồi gắn
+bằng `botctl attach-output-video` — thẻ kênh được gửi **kèm video**
+để duyệt ngay trong Telegram. Đăng thật lên YouTube/TikTok là
+Giai đoạn 3; hiện nút Đăng chỉ ghi lệnh đăng như các kênh khác.
+
+`/thongke` (Giai đoạn 2) có chuyển kỳ Hôm nay / Tuần này / Tháng này /
+Tất cả bằng nút inline, đếm việc và đầu ra theo trạng thái + theo
+kênh (gồm cả kênh video) + theo người tạo, kèm nút **🖼 Biểu đồ**
+(PNG), **📥 Xuất CSV** và **📗 Xuất Excel** theo đúng kỳ đang xem.
+Mỗi ngày lúc **20:00** bot tự gửi tin tổng kết ngày cho các Admin
+(số việc tạo hôm nay, số đầu ra đã đăng, đang chờ duyệt/chờ đăng) —
+mỗi ngày chỉ gửi một lần, kể cả khi bot khởi động lại.
 
 ## 6. Bảng vai trò
 
@@ -282,10 +293,11 @@ Dữ liệu nằm ở `data/bot.db` (SQLite: người dùng, việc, nhật ký)
   bot (`RETRACTED`) và thông báo cho người liên quan — **chưa gỡ bài
   thật** trên website/Facebook/Instagram. Việc gỡ bài thật sẽ được nối
   cùng lúc với khâu đăng bài, khi website được kết nối.
-- Hai kênh video (`video_vertical`, `video_horizontal`) mới chỉ được
-  **định nghĩa trước** trong danh mục kênh; chưa có đầu ra video, chưa
-  có khâu dựng/đăng video. Giai đoạn video sẽ dùng chung mô hình thẻ
-  kênh riêng này.
+- Hai kênh video (`video_vertical`, `video_horizontal`) đã **kích
+  hoạt từ Giai đoạn 2**: có đầu ra và thẻ kênh riêng, Muse dựng video
+  nháp và gắn bằng `botctl attach-output-video` để duyệt ngay trong
+  Telegram. **Chưa có khâu đăng thật lên YouTube/TikTok** — đó là
+  Giai đoạn 3; nút Đăng hiện chỉ ghi lệnh đăng.
 - Bot hiện chạy bằng long polling trên máy của Muse, chưa cài service
   thường trực.
 - Chạy kiểm thử: `python3 -m unittest discover -s tests -v` — toàn bộ

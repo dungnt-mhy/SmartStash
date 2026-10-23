@@ -68,6 +68,11 @@ def main(argv=None) -> int:
                 app.fire_due_schedules()
             except Exception as exc:
                 print(f"Kiểm tra lịch đăng lỗi: {exc}", file=sys.stderr)
+            # Daily 20:00 digest for admins (once a day, meta-gated).
+            try:
+                app.maybe_send_daily_summary()
+            except Exception as exc:
+                print(f"Tổng kết ngày lỗi: {exc}", file=sys.stderr)
     except KeyboardInterrupt:
         print("\nĐã dừng bot.")
     finally:

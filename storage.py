@@ -70,6 +70,12 @@ def channel_label(channel: str) -> str:
     return meta["label"] if meta else channel
 
 
+def channel_kind(channel: str) -> str:
+    """The channel's content kind: article / post / carousel / video."""
+    meta = CHANNELS.get(channel)
+    return meta["kind"] if meta else ""
+
+
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -106,6 +112,8 @@ CREATE TABLE IF NOT EXISTS outputs (
     channel       TEXT NOT NULL,
     status        TEXT NOT NULL DEFAULT 'DRAFT',
     draft_ref     TEXT,
+    draft_video_path TEXT,
+    draft_file_id TEXT,
     public_url    TEXT,
     reject_reason TEXT,
     scheduled_at  TEXT,
@@ -198,6 +206,12 @@ class Store:
             self._conn.execute(
                 "ALTER TABLE outputs ADD COLUMN pending_choice "
                 "INTEGER NOT NULL DEFAULT 0")
+        if "draft_video_path" not in out_columns:
+            self._conn.execute(
+                "ALTER TABLE outputs ADD COLUMN draft_video_path TEXT")
+        if "draft_file_id" not in out_columns:
+            self._conn.execute(
+                "ALTER TABLE outputs ADD COLUMN draft_file_id TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -341,6 +355,42 @@ class Store:
                 "GROUP BY channel, status ORDER BY channel, status"
             ).fetchall()
         return [(r["channel"], r["status"], r["n"]) for r in rows]
+
+    # ------------------------------------------------------- statistics
+    # Period queries for /thongke and the daily summary. Bounds are
+    # UTC ISO strings; ``end`` is exclusive, None means unbounded.
+    def tasks_created_between(self, start_iso, end_iso=None):
+        query = "SELECT * FROM tasks WHERE created_at >= ?"
+        args = [start_iso]
+        if end_iso is not None:
+            query += " AND created_at < ?"
+            args.append(end_iso)
+        query += " ORDER BY id"
+        with self._lock:
+            return self._conn.execute(query, args).fetchall()
+
+    def outputs_created_between(self, start_iso, end_iso=None):
+        query = "SELECT * FROM outputs WHERE created_at >= ?"
+        args = [start_iso]
+        if end_iso is not None:
+            query += " AND created_at < ?"
+            args.append(end_iso)
+        query += " ORDER BY id"
+        with self._lock:
+            return self._conn.execute(query, args).fetchall()
+
+    def outputs_published_between(self, start_iso, end_iso=None):
+        """Outputs whose publish moment (updated_at of a PUBLISHED
+        row, as elsewhere in this codebase) falls in the period."""
+        query = ("SELECT * FROM outputs WHERE status = 'PUBLISHED'"
+                 " AND updated_at >= ?")
+        args = [start_iso]
+        if end_iso is not None:
+            query += " AND updated_at < ?"
+            args.append(end_iso)
+        query += " ORDER BY updated_at"
+        with self._lock:
+            return self._conn.execute(query, args).fetchall()
 
     def needs_article(self):
         """Tasks Muse still has to write / process: DRAFT and PENDING."""
@@ -492,6 +542,32 @@ class Store:
                 "UPDATE outputs SET draft_ref = ?, updated_at = ?"
                 " WHERE id = ?",
                 (draft_ref, utcnow_iso(), output_id),
+            )
+
+    def set_output_video(self, output_id: int, video_path: str) -> None:
+        """Attach a draft video file to a video-channel output.
+
+        ``draft_ref`` mirrors the local path so every existing
+        "has a draft" check (submit / approve / publish keyboards,
+        Muse's work queue) treats the video exactly like a text
+        draft. A previously cached Telegram file_id belongs to the
+        old file, so it is cleared — the next card send uploads the
+        new file and caches its fresh file_id."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE outputs SET draft_video_path = ?,"
+                " draft_file_id = NULL, draft_ref = ?, updated_at = ?"
+                " WHERE id = ?",
+                (video_path, video_path, utcnow_iso(), output_id),
+            )
+
+    def set_output_file_id(self, output_id: int, file_id: str) -> None:
+        """Cache the Telegram file_id of an uploaded draft video so
+        later cards re-send it without uploading the file again."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE outputs SET draft_file_id = ? WHERE id = ?",
+                (file_id, output_id),
             )
 
     def set_output_pending_choice(self, output_id: int,

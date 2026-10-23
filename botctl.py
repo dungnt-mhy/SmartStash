@@ -7,6 +7,7 @@ Usage:
     python3 botctl.py set-published CV-0001 https://example.com/bai-viet-1
     python3 botctl.py list-outputs CV-0001
     python3 botctl.py attach-output-draft CV-0001 facebook https://example.com/draft/fb
+    python3 botctl.py attach-output-video CV-0001 video_vertical ./video-doc.mp4
     python3 botctl.py set-output-published CV-0001 facebook https://facebook.com/post/1
 
 - list-needs-article: print tasks in DRAFT/PENDING as JSON (stdout).
@@ -22,6 +23,10 @@ Usage:
   reference, so the card carries one tidy link that opens the whole
   formatted draft inside Telegram (Instant View) — nothing else is
   sent into the chat. Re-attaching edits the same page.
+- attach-output-video: copy a draft video into the task's durable
+  folder, store it on one video-channel output (status unchanged)
+  and send that channel's card AS a video message to the creator +
+  reviewers, so the draft is reviewed right inside Telegram.
 - set-output-published: mark one channel output PUBLISHED with its
   public URL and send its card to the creator + admins.
 
@@ -70,12 +75,19 @@ def task_to_dict(task) -> dict:
 
 
 def output_to_dict(output) -> dict:
+    keys = output.keys()
     return {
         "id": output["id"],
         "task_code": output["task_code"],
         "channel": output["channel"],
         "status": output["status"],
         "draft_ref": output["draft_ref"],
+        "draft_video_path": (
+            output["draft_video_path"]
+            if "draft_video_path" in keys else None),
+        "draft_file_id": (
+            output["draft_file_id"]
+            if "draft_file_id" in keys else None),
         "public_url": output["public_url"],
         "reject_reason": output["reject_reason"],
         "created_at": output["created_at"],
@@ -497,6 +509,11 @@ def cmd_attach_output_draft(store, args) -> int:
     task, output = _get_task_and_output(store, args.task_code, args.channel)
     if output is None:
         return 1
+    from storage import CHANNELS
+    if CHANNELS.get(args.channel, {}).get("kind") == "video":
+        print(f"Lỗi: kênh {args.channel} là kênh video — hãy gắn "
+              "video nháp bằng lệnh attach-output-video.", file=sys.stderr)
+        return 1
     ref = args.ref
     # With --file, the draft itself is published as a telegra.ph page
     # and the page URL becomes the draft reference: the channel card in
@@ -561,6 +578,51 @@ def cmd_attach_output_draft(store, args) -> int:
                    _recipients_for_draft(store, task))
     print(f"Đã gắn bản nháp cho đầu ra {args.channel} của "
           f"{args.task_code}: {ref}")
+    return 0
+
+
+def cmd_attach_output_video(store, args) -> int:
+    """Attach a draft VIDEO to a video-channel output and send its
+    channel card — the card message IS the video, so the reviewer
+    watches the draft right inside Telegram (no external link).
+
+    The file is copied into the task's durable folder
+    (data/files/<code>/video-drafts/) and its path stored on the
+    output; the first card send uploads it and caches the Telegram
+    file_id for later sends. Status is left untouched, mirroring
+    attach-output-draft: a rejected output stays REJECTED until the
+    creator submits it again."""
+    import shutil
+
+    task, output = _get_task_and_output(store, args.task_code, args.channel)
+    if output is None:
+        return 1
+    from storage import CHANNELS
+    if CHANNELS.get(args.channel, {}).get("kind") != "video":
+        print(f"Lỗi: kênh {args.channel} không phải kênh video — "
+              "lệnh này chỉ dùng cho video_vertical / "
+              "video_horizontal.", file=sys.stderr)
+        return 1
+    src = Path(args.video_file)
+    if not src.is_file():
+        print(f"Lỗi: không tìm thấy file video: {src}", file=sys.stderr)
+        return 1
+    dest_dir = DEFAULT_DATA_DIR / "files" / task["code"] / "video-drafts"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{args.channel}{src.suffix.lower() or '.mp4'}"
+    if src.resolve() != dest.resolve():
+        shutil.copyfile(src, dest)
+    store.set_output_pending_choice(output["id"], False)
+    store.set_output_video(output["id"], str(dest))
+    store.audit(None, "attach_output_video", "output", output["id"],
+                detail=f"task={args.task_code} channel={args.channel} "
+                       f"video={dest}")
+    client = build_client_or_warn(args.no_notify)
+    output = store.get_output(output["id"])
+    _notify_output(store, client, task, output,
+                   _recipients_for_draft(store, task))
+    print(f"Đã gắn video nháp cho đầu ra {args.channel} của "
+          f"{args.task_code}: {dest}")
     return 0
 
 
@@ -662,6 +724,15 @@ def main(argv=None) -> int:
         help="Không nhúng ảnh tư liệu vào trang nháp (mặc định có "
              "nhúng, theo chỉ đạo của chủ dự án)")
 
+    p_ovid = sub.add_parser(
+        "attach-output-video",
+        help="Gắn video nháp cho một đầu ra kênh video và gửi thẻ "
+             "kênh kèm video đi")
+    p_ovid.add_argument("task_code")
+    p_ovid.add_argument("channel")
+    p_ovid.add_argument("video_file")
+    p_ovid.add_argument("--no-notify", action="store_true")
+
     p_opub = sub.add_parser(
         "set-output-published",
         help="Đánh dấu một đầu ra kênh đã đăng và gắn link public")
@@ -691,6 +762,8 @@ def main(argv=None) -> int:
             return cmd_list_outputs(store, args)
         if args.command == "attach-output-draft":
             return cmd_attach_output_draft(store, args)
+        if args.command == "attach-output-video":
+            return cmd_attach_output_video(store, args)
         if args.command == "set-output-published":
             return cmd_set_output_published(store, args)
         if args.command == "set-output-retracted":

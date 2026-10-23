@@ -149,8 +149,9 @@ class TelegramClient:
         )
 
     def _post_multipart(self, method, field_name, chat_id, file_path,
-                        caption=None):
-        """Shared multipart upload for sendDocument / sendPhoto.
+                        caption=None, reply_markup=None, extra_fields=None):
+        """Shared multipart upload for sendDocument / sendPhoto /
+        sendVideo.
 
         The JSON transport cannot carry uploads, so the multipart body
         is built directly and posted to the method URL — the credential
@@ -166,6 +167,10 @@ class TelegramClient:
         fields = [("chat_id", str(chat_id))]
         if caption:
             fields.append(("caption", caption))
+        if reply_markup is not None:
+            fields.append(("reply_markup", json.dumps(reply_markup)))
+        for name, value in (extra_fields or {}).items():
+            fields.append((name, str(value)))
         body = bytearray()
         for name, value in fields:
             body += f"--{boundary}\r\n".encode()
@@ -203,6 +208,28 @@ class TelegramClient:
     def send_photo(self, chat_id, file_path, caption=None):
         return self._post_multipart(
             "sendPhoto", "photo", chat_id, file_path, caption)
+
+    def send_video(self, chat_id, video, caption=None, reply_markup=None):
+        """Send a video: a local file path is uploaded (multipart),
+        anything else is treated as a Telegram file_id and sent via
+        the JSON API so repeat sends cost no upload."""
+        from pathlib import Path
+
+        if video and Path(str(video)).is_file():
+            return self._post_multipart(
+                "sendVideo", "video", chat_id, video, caption,
+                reply_markup=reply_markup,
+                extra_fields={"supports_streaming": "true"})
+        return self.call(
+            "sendVideo", chat_id=chat_id, video=video, caption=caption,
+            reply_markup=reply_markup, supports_streaming=True)
+
+    def edit_message_caption(self, chat_id, message_id, caption,
+                             reply_markup=None, **kwargs):
+        return self.call(
+            "editMessageCaption", chat_id=chat_id, message_id=message_id,
+            caption=caption, reply_markup=reply_markup, **kwargs,
+        )
 
     def edit_message_text(self, chat_id, message_id, text, reply_markup=None,
                           **kwargs):

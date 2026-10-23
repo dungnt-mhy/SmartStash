@@ -66,7 +66,24 @@ class FakeApi:
         self.edits = []      # [{chat_id, message_id, text?, reply_markup}]
         self.commands_set = []  # [{commands, scope}]
         self.documents = []  # [{chat_id, path, caption}]
+        self.videos = []     # [{chat_id, video, caption, reply_markup}]
         self._next_id = 1
+
+    def send_video(self, chat_id, video, caption=None, reply_markup=None):
+        self.videos.append(
+            {"chat_id": chat_id, "video": video, "caption": caption,
+             "reply_markup": reply_markup})
+        self._next_id += 1
+        return {"message_id": self._next_id,
+                "video": {"file_id": "fake-video-file-id"}}
+
+    def edit_message_caption(self, chat_id, message_id, caption,
+                             reply_markup=None, **kwargs):
+        self.edits.append(
+            {"chat_id": chat_id, "message_id": message_id,
+             "text": caption, "reply_markup": reply_markup,
+             "kind": "caption"})
+        return True
 
     def send_document(self, chat_id, file_path, caption=None):
         from pathlib import Path as _P
@@ -152,7 +169,7 @@ def tg_user(user_id, username=None, name=None):
 
 
 def message_update(user_id, text=None, photo=None, document=None,
-                   caption=None, update_id=1):
+                   caption=None, update_id=1, video=None):
     message = {
         "message_id": update_id,
         "from": tg_user(user_id),
@@ -164,6 +181,8 @@ def message_update(user_id, text=None, photo=None, document=None,
         message["photo"] = photo
     if document is not None:
         message["document"] = document
+    if video is not None:
+        message["video"] = video
     if caption is not None:
         message["caption"] = caption
     return {"update_id": update_id, "message": message}
@@ -1990,6 +2009,361 @@ class Phase1TestCase(BotTestCase):
         stats = [t for t in self.api.texts_to(ADMIN) if "Thống kê" in t]
         self.assertTrue(stats)
         self.assertIn("Chờ duyệt (PENDING): 1", stats[-1])
+
+
+class Phase2TestCase(BotTestCase):
+    """Phase 2: video channels (own cards, draft video reviewed in
+    Telegram) and full statistics (periods, chart, CSV/Excel export,
+    20:00 daily summary)."""
+
+    # ------------------------------------------------------------- helpers
+    def add_output(self, code, channel):
+        task = self.store.get_task(code)
+        dests = json.loads(task["destinations"])
+        if channel not in dests:
+            dests.append(channel)
+            self.store.set_task_destinations(code, dests)
+        self.store.sync_outputs_for_task(self.store.get_task(code))
+        return self.store.get_output_by_channel(code, channel)
+
+    def all_button_texts(self):
+        texts = []
+        for source in (self.api.sent, self.api.videos):
+            for m in source:
+                markup = m.get("reply_markup") or {}
+                for row in markup.get("inline_keyboard", []):
+                    texts.extend(b["text"] for b in row)
+        return texts
+
+    def attach_video_via_botctl(self, code, channel="video_vertical"):
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        src = Path(tmp.name) / "ban-dung.mp4"
+        src.write_bytes(b"\x00\x00\x00\x18ftypmp42 fake video")
+        original_client = botctl.build_client_or_warn
+        original_dir = botctl.DEFAULT_DATA_DIR
+        botctl.build_client_or_warn = lambda no_notify: self.api
+        botctl.DEFAULT_DATA_DIR = Path(tmp.name) / "data"
+        try:
+            args = argparse.Namespace(
+                task_code=code, channel=channel,
+                video_file=str(src), no_notify=False)
+            rc = botctl.cmd_attach_output_video(self.store, args)
+        finally:
+            botctl.build_client_or_warn = original_client
+            botctl.DEFAULT_DATA_DIR = original_dir
+        return rc
+
+    # ---------------------------------------------------- video channels
+    def test_wizard_can_pick_video_channels(self):
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="📝 Giao việc mới"))
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_done_files"))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Quay clip khai giảng"))
+        # Step 3 offers the video channels with the standard picker
+        # look: chosen shows icon + name, unchosen swaps icon for ❌.
+        self.assertIn("wiz_dest:video_vertical",
+                      self.api.all_callback_data())
+        self.assertIn("❌ Video dọc", self.all_button_texts())
+        self.assertIn("❌ Video ngang", self.all_button_texts())
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, "wiz_dest:video_vertical"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, "wiz_dest:facebook"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(
+            state["payload"]["destinations"],
+            ["website", "instagram", "video_vertical"])
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
+        task = self.store.list_tasks()[0]
+        self.assertEqual(
+            json.loads(task["destinations"]),
+            ["website", "instagram", "video_vertical"])
+        channels = [o["channel"]
+                    for o in self.store.list_outputs(task["code"])]
+        self.assertIn("video_vertical", channels)
+
+    def test_task_card_picker_adds_video_output(self):
+        task = self.create_contributor_task()
+        code = task["code"]
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest:{code}:video_horizontal"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_ok:{code}"))
+        task = self.store.get_task(code)
+        self.assertIn("video_horizontal", json.loads(task["destinations"]))
+        output = self.store.get_output_by_channel(code, "video_horizontal")
+        self.assertIsNotNone(output)
+        self.assertEqual(output["status"], "DRAFT")
+
+    def test_video_intake_is_buffered_as_source_material(self):
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, video={"file_id": "clip-1", "duration": 12}))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Dựng video từ clip này"))
+        tasks = self.store.list_tasks()
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(json.loads(tasks[0]["file_ids"]), ["clip-1"])
+
+    def test_attach_output_video_sends_video_card(self):
+        task = self.create_contributor_task()
+        code = task["code"]
+        output = self.add_output(code, "video_vertical")
+        self.api.sent.clear()
+        rc = self.attach_video_via_botctl(code)
+        self.assertEqual(rc, 0)
+        output = self.store.get_output(output["id"])
+        # The draft is stored durably and counts as the output's draft.
+        self.assertTrue(output["draft_ref"])
+        self.assertTrue(output["draft_video_path"].endswith(".mp4"))
+        self.assertTrue(Path(output["draft_video_path"]).is_file())
+        self.assertEqual(output["status"], "DRAFT")
+        self.assertEqual(
+            len(self.store.audit_entries("attach_output_video")), 1)
+        # The card went out AS a video message to creator + reviewers,
+        # with the card text as its caption and working buttons.
+        chats = {v["chat_id"] for v in self.api.videos}
+        self.assertIn(CONTRIBUTOR, chats)
+        self.assertIn(ADMIN, chats)
+        creator_card = next(
+            v for v in self.api.videos if v["chat_id"] == CONTRIBUTOR)
+        self.assertIn("Thẻ kênh Video dọc", creator_card["caption"])
+        self.assertIn("🎬 Video nháp", creator_card["caption"])
+        creator_data = [
+            b["callback_data"]
+            for row in (creator_card["reply_markup"] or {})
+            .get("inline_keyboard", [])
+            for b in row
+        ]
+        self.assertIn(f"out_submit:{output['id']}", creator_data)
+        # The uploaded file_id was cached; the next card reuses it
+        # instead of uploading the file again.
+        self.assertEqual(output["draft_file_id"], "fake-video-file-id")
+        self.api.videos.clear()
+        fresh = self.store.get_output(output["id"])
+        self.app.send_output_card(
+            CONTRIBUTOR, fresh, self.store.get_task(code),
+            self.store.get_user(CONTRIBUTOR))
+        self.assertEqual(self.api.videos[-1]["video"],
+                         "fake-video-file-id")
+
+    def test_attach_output_video_rejects_wrong_channel_and_missing_file(self):
+        task = self.create_contributor_task()
+        code = task["code"]
+        self.add_output(code, "video_vertical")
+        rc = self.attach_video_via_botctl(code, channel="facebook")
+        self.assertEqual(rc, 1)
+        # attach-output-draft refuses video channels and points to
+        # the video command instead.
+        args = argparse.Namespace(
+            task_code=code, channel="video_vertical",
+            ref="https://example.com/x", no_notify=True,
+            file=None, no_images=False)
+        rc = botctl.cmd_attach_output_draft(self.store, args)
+        self.assertEqual(rc, 1)
+        # Missing video file is an error, not a silent no-op.
+        original_dir = botctl.DEFAULT_DATA_DIR
+        botctl.DEFAULT_DATA_DIR = Path(tempfile.gettempdir())
+        try:
+            args = argparse.Namespace(
+                task_code=code, channel="video_vertical",
+                video_file="/khong/he/co/video.mp4", no_notify=True)
+            rc = botctl.cmd_attach_output_video(self.store, args)
+        finally:
+            botctl.DEFAULT_DATA_DIR = original_dir
+        self.assertEqual(rc, 1)
+
+    def test_video_card_admin_own_buttons_and_publish_order(self):
+        task = self.create_admin_task()
+        code = task["code"]
+        output = self.add_output(code, "video_horizontal")
+        self.store.set_output_video(output["id"], "/tmp/video-ngang.mp4")
+        output = self.store.get_output(output["id"])
+        self.api.videos.clear()
+        self.app.send_output_card(
+            ADMIN, output, self.store.get_task(code),
+            self.store.get_user(ADMIN))
+        labels = self.all_button_texts()
+        # Admin's own video card: Đăng / Đặt lịch / Sửa lại / Hủy —
+        # no Gửi duyệt, no Duyệt, no Trả lại, exactly like text cards.
+        self.assertIn("🚀 Đăng", labels)
+        self.assertIn("🕐 Đặt lịch đăng", labels)
+        self.assertIn("✏️ Sửa lại", labels)
+        self.assertNotIn("📤 Gửi duyệt", labels)
+        # Đăng on a video channel records the publish order and waits
+        # (Phase 3 does the real YouTube/TikTok upload) — no Facebook
+        # target choice is shown.
+        self.api.sent.clear()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{output['id']}"))
+        output = self.store.get_output(output["id"])
+        self.assertEqual(output["status"], "APPROVED_WAITING")
+        entries = self.store.audit_entries("publish_requested")
+        self.assertEqual(len(entries), 1)
+        self.assertIn("channel=video_horizontal", entries[0]["detail"])
+        self.assertFalse(any(
+            "lên đâu?" in t for t in self.api.texts_to(ADMIN)))
+
+    def test_video_schedule_quick_pick(self):
+        task = self.create_admin_task()
+        code = task["code"]
+        output = self.add_output(code, "video_vertical")
+        self.store.set_output_video(output["id"], "/tmp/video-doc.mp4")
+        output = self.store.get_output(output["id"])
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{output['id']}"))
+        state = self.store.get_user_state(ADMIN)
+        self.assertEqual(state["state"], "await_output_schedule_time")
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schquick:{output['id']}:60"))
+        output = self.store.get_output(output["id"])
+        self.assertEqual(output["status"], "APPROVED_WAITING")
+        self.assertIsNotNone(output["scheduled_at"])
+        self.assertEqual(
+            len(self.store.audit_entries("schedule_set")), 1)
+
+    def test_claude_status_lists_video_channel(self):
+        task = self.create_contributor_task()
+        self.add_output(task["code"], "video_vertical")
+        self.api.sent.clear()
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text=handlers.BTN_CLAUDE))
+        texts = self.api.texts_to(CONTRIBUTOR)
+        self.assertTrue(any(
+            "Muse đang làm" in t and "Video dọc" in t for t in texts))
+
+    def test_edit_card_falls_back_to_caption_for_video_cards(self):
+        class CaptionOnlyApi(FakeApi):
+            def edit_message_text(self, *a, **k):
+                raise RuntimeError("message can't be edited")
+
+        api2 = CaptionOnlyApi()
+        app2 = BotApp(self.store, api2)
+        result = app2._edit_card(ADMIN, 42, "nội dung thẻ mới")
+        self.assertTrue(result)
+        self.assertEqual(api2.edits[-1]["kind"], "caption")
+        self.assertEqual(api2.edits[-1]["text"], "nội dung thẻ mới")
+
+    def test_client_send_video_by_file_id_uses_json_api(self):
+        from telegram_client import TelegramClient
+
+        captured = {}
+
+        def transport(url, payload):
+            captured["url"] = url
+            captured["payload"] = payload
+            return {"ok": True, "result": {"message_id": 5}}
+
+        client = TelegramClient(transport=transport, token="TESTTOKEN")
+        client.send_video(123, "FILEID123", caption="xem thử")
+        self.assertIn("sendVideo", captured["url"])
+        self.assertEqual(captured["payload"]["video"], "FILEID123")
+        # A real local file goes through the multipart upload path.
+        with tempfile.NamedTemporaryFile(
+                suffix=".mp4", delete=False) as fh:
+            fh.write(b"fake")
+            path = fh.name
+        calls = {}
+        client._post_multipart = lambda *a, **k: calls.update(
+            args=a, kwargs=k) or {"message_id": 6}
+        client.send_video(123, path, caption="xem thử")
+        self.assertEqual(calls["args"][0], "sendVideo")
+        self.assertEqual(calls["kwargs"]["reply_markup"], None)
+
+    # --------------------------------------------------------- statistics
+    def seed_stats(self):
+        task = self.create_contributor_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_public_url(
+            fb["id"], "https://facebook.com/post/1")
+        video = self.add_output(task["code"], "video_vertical")
+        self.store.set_output_video(video["id"], "/tmp/v.mp4")
+        admin_task = self.create_admin_task()
+        return task, admin_task
+
+    def test_thongke_periods_switch_in_place(self):
+        self.seed_stats()
+        self.api.sent.clear()
+        self.app.handle_update(message_update(ADMIN, text="/thongke"))
+        stats_msgs = [m for m in self.api.sent
+                      if m["chat_id"] == ADMIN
+                      and "Thống kê" in (m["text"] or "")]
+        self.assertTrue(stats_msgs)
+        text = stats_msgs[-1]["text"]
+        self.assertIn("Tất cả", text)
+        self.assertIn("🎬 Video: đã dựng 1 video nháp", text)
+        self.assertIn("Theo người tạo:", text)
+        self.assertIn("1 đầu ra đã đăng", text)
+        data = self.api.all_callback_data()
+        for cb in ("stats:today", "stats:week", "stats:month",
+                   "stats_chart:all", "stats_csv:all", "stats_xlsx:all"):
+            self.assertIn(cb, data)
+        # Switching the period edits the same message in place.
+        self.api.edits.clear()
+        self.app.handle_update(callback_update(ADMIN, "stats:today"))
+        edited = [e for e in self.api.edits if e["text"]]
+        self.assertTrue(any("Hôm nay" in e["text"] for e in edited))
+        # Contributors never see statistics.
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/thongke"))
+        self.assertTrue(any(
+            "không có quyền" in t
+            for t in self.api.texts_to(CONTRIBUTOR)))
+
+    def test_thongke_chart_and_exports(self):
+        self.seed_stats()
+        self.api.documents.clear()
+        self.app.handle_update(callback_update(ADMIN, "stats_chart:all"))
+        photos = [d for d in self.api.documents
+                  if d.get("kind") == "photo"]
+        self.assertEqual(len(photos), 1)
+        self.assertEqual(photos[0]["path"].suffix, ".png")
+        self.assertTrue(photos[0]["path"].is_file())
+        self.assertGreater(photos[0]["path"].stat().st_size, 1000)
+
+        self.app.handle_update(callback_update(ADMIN, "stats_csv:all"))
+        csvs = [d for d in self.api.documents
+                if d["path"].suffix == ".csv"]
+        self.assertEqual(len(csvs), 1)
+        content = csvs[0]["path"].read_text(encoding="utf-8-sig")
+        self.assertIn("Mã việc", content)
+        self.assertIn("CV-0001", content)
+        self.assertIn("Video dọc", content)
+
+        self.app.handle_update(callback_update(ADMIN, "stats_xlsx:all"))
+        books = [d for d in self.api.documents
+                 if d["path"].suffix == ".xlsx"]
+        self.assertEqual(len(books), 1)
+        from openpyxl import load_workbook
+
+        wb = load_workbook(books[0]["path"])
+        ws = wb.active
+        self.assertGreaterEqual(ws.max_row, 2)
+        self.assertEqual(ws.cell(row=1, column=1).value, "Mã việc")
+
+    def test_daily_summary_sent_once_after_20h(self):
+        from datetime import datetime
+
+        self.seed_stats()
+        tz = handlers._ict_tz()
+        self.api.sent.clear()
+        early = datetime(2026, 10, 23, 19, 59, tzinfo=tz)
+        self.assertFalse(self.app.maybe_send_daily_summary(now=early))
+        self.assertEqual(self.api.texts_to(ADMIN), [])
+        evening = datetime(2026, 10, 23, 20, 5, tzinfo=tz)
+        self.assertTrue(self.app.maybe_send_daily_summary(now=evening))
+        texts = self.api.texts_to(ADMIN)
+        self.assertTrue(any(
+            "Tổng kết ngày 23/10/2026" in t
+            and "🚀 Đầu ra đã đăng hôm nay:" in t for t in texts))
+        # A restart later the same evening must not re-send.
+        self.api.sent.clear()
+        later = datetime(2026, 10, 23, 21, 40, tzinfo=tz)
+        self.assertFalse(self.app.maybe_send_daily_summary(now=later))
+        self.assertEqual(self.api.texts_to(ADMIN), [])
 
 
 if __name__ == "__main__":
