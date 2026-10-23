@@ -144,6 +144,25 @@ class TelegramClient:
             reply_markup=reply_markup, **kwargs,
         )
 
+    def edit_message_text(self, chat_id, message_id, text, reply_markup=None,
+                          **kwargs):
+        return self.call(
+            "editMessageText", chat_id=chat_id, message_id=message_id,
+            text=text, reply_markup=reply_markup, **kwargs,
+        )
+
+    def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None):
+        return self.call(
+            "editMessageReplyMarkup", chat_id=chat_id, message_id=message_id,
+            reply_markup=reply_markup,
+        )
+
+    def set_my_commands(self, commands, scope=None, language_code=None):
+        return self.call(
+            "setMyCommands", commands=commands, scope=scope,
+            language_code=language_code,
+        )
+
     def answer_callback_query(self, callback_query_id, text=None,
                               show_alert=False):
         return self.call(

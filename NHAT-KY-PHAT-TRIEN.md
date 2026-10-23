@@ -20,6 +20,12 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Xây xong Giai đoạn 1: menu, bàn phím chính, wizard, thẻ sửa tại chỗ
+- **Hạng mục:** Tính năng
+- **Thay đổi:** (1) Menu lệnh ở nút Menu theo vai trò: danh sách cơ bản cho mọi người (/start, /giaoviec, /viec, /vaitro, /help), người duyệt có thêm /choduyet và /thongke, Admin/Phó Admin thêm /danhsach, /capquyen, /thuhoi — bot tự đăng ký lại menu cho từng người khi khởi động, khi /start và khi được cấp/thu hồi quyền. (2) Bàn phím chính ghim theo vai trò hiện ngay sau /start (nút Giao việc mới, Việc của tôi/Tất cả việc, Chờ duyệt, Thống kê, Người dùng, Trợ giúp). (3) Lệnh /giaoviec và nút Giao việc mới mở luồng tạo việc 3 bước: gửi file → nhập gợi ý → chọn nơi đăng bằng nút bật/tắt → bấm Tạo việc; cách gửi thẳng ảnh + gợi ý như cũ vẫn chạy song song. (4) Thẻ việc/thẻ kênh được sửa tại chỗ khi bấm nút thao tác thay vì gửi thẻ mới. (5) Thêm lệnh /choduyet (hàng chờ duyệt) và /thongke (bản thống kê nhanh dạng chữ; biểu đồ và xuất file vẫn thuộc Giai đoạn 2).
+- **Lý do:** Thực hiện Giai đoạn 1 của bản thiết kế đã duyệt.
+- **Trạng thái:** Đã xong. Kiểm thử tự động 70/70 đạt (31 cũ + 8 mới, lớp mới kế thừa nên tổng số chạy là 70), bot đã khởi động lại và kiểm chứng menu lệnh đã đăng ký thật trên Telegram. Đã cập nhật README mục Danh sách lệnh.
+
 ### 2026-10-23 — Đưa dự án lên GitHub, thiết kế được duyệt làm chuẩn
 - **Hạng mục:** Thiết kế / Vận hành
 - **Thay đổi:** Bản thiết kế bot chuyên nghiệp (menu trái theo vai trò, bàn phím chính theo vai trò, wizard giao việc từng bước, thống kê trong Telegram, thẻ sửa tại chỗ) được chủ dự án duyệt ("Bản thiết kế ok"). Xuất file thiết kế dạng HTML tĩnh vào `docs/ban-thiet-ke-bot-chuyen-nghiep.html`, tạo file nhật ký này và đưa toàn bộ mã nguồn bot lên GitHub.

@@ -37,6 +37,8 @@ class FakeApi:
     def __init__(self):
         self.sent = []       # [{chat_id, text, reply_markup}]
         self.answered = []   # [{callback_query_id, text, show_alert}]
+        self.edits = []      # [{chat_id, message_id, text?, reply_markup}]
+        self.commands_set = []  # [{commands, scope}]
         self._next_id = 1
 
     def send_message(self, chat_id, text, reply_markup=None, **kwargs):
@@ -45,6 +47,25 @@ class FakeApi:
         )
         self._next_id += 1
         return {"message_id": self._next_id}
+
+    def edit_message_text(self, chat_id, message_id, text, reply_markup=None,
+                          **kwargs):
+        self.edits.append(
+            {"chat_id": chat_id, "message_id": message_id, "text": text,
+             "reply_markup": reply_markup}
+        )
+        return True
+
+    def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None):
+        self.edits.append(
+            {"chat_id": chat_id, "message_id": message_id, "text": None,
+             "reply_markup": reply_markup}
+        )
+        return True
+
+    def set_my_commands(self, commands, scope=None, language_code=None):
+        self.commands_set.append({"commands": commands, "scope": scope})
+        return True
 
     def answer_callback_query(self, callback_query_id, text=None, show_alert=False):
         self.answered.append(
@@ -718,6 +739,124 @@ class BotTestCase(unittest.TestCase):
                 )
             finally:
                 store.close()
+
+
+class Phase1TestCase(BotTestCase):
+    """Phase 1: role menus, main keyboard, creation wizard, edit-in-place."""
+
+    def keyboard_labels_of(self, chat_id):
+        labels = []
+        for m in self.api.sent:
+            if m["chat_id"] != chat_id:
+                continue
+            markup = m.get("reply_markup") or {}
+            for row in markup.get("keyboard", []):
+                labels.extend(b["text"] for b in row)
+        return labels
+
+    def test_start_sends_role_main_keyboard(self):
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/start"))
+        labels = self.keyboard_labels_of(CONTRIBUTOR)
+        self.assertIn("📝 Giao việc mới", labels)
+        self.assertIn("📋 Việc của tôi", labels)
+        self.assertNotIn("📊 Thống kê", labels)
+        self.app.handle_update(message_update(ADMIN, text="/start"))
+        labels = self.keyboard_labels_of(ADMIN)
+        self.assertIn("⏳ Chờ duyệt", labels)
+        self.assertIn("📊 Thống kê", labels)
+        self.assertIn("👥 Người dùng", labels)
+
+    def test_menu_commands_follow_role(self):
+        self.app.sync_all_commands()
+        by_chat = {}
+        for entry in self.api.commands_set:
+            scope = entry["scope"] or {}
+            if scope.get("type") == "chat":
+                by_chat[scope["chat_id"]] = [
+                    c["command"] for c in entry["commands"]]
+        self.assertIn("thongke", by_chat[ADMIN])
+        self.assertIn("capquyen", by_chat[ADMIN])
+        self.assertIn("thongke", by_chat[EDITOR])
+        self.assertNotIn("capquyen", by_chat[EDITOR])
+        self.assertNotIn("thongke", by_chat[CONTRIBUTOR])
+        self.assertIn("giaoviec", by_chat[CONTRIBUTOR])
+
+    def test_keyboard_label_opens_my_tasks(self):
+        self.create_contributor_task()
+        self.api.sent.clear()
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="📋 Việc của tôi"))
+        texts = self.api.texts_to(CONTRIBUTOR)
+        self.assertTrue(any("CV-0001" in t for t in texts))
+
+    def test_wizard_full_flow_with_channel_toggle(self):
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="📝 Giao việc mới"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(state["state"], "wizard_files")
+        self.app.handle_update(message_update(
+            CONTRIBUTOR, photo=PHOTO, caption="Ảnh cổng trường"))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_done_files"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(state["state"], "wizard_hint")
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Khai giảng năm học mới"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(state["state"], "wizard_channels")
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, "wiz_dest:instagram"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(
+            state["payload"]["destinations"], ["website", "facebook"])
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
+        self.assertIsNone(self.store.get_user_state(CONTRIBUTOR))
+        tasks = self.store.list_tasks()
+        self.assertEqual(len(tasks), 1)
+        task = tasks[0]
+        self.assertIn("Khai giảng", task["hint"])
+        self.assertIn("Ảnh cổng trường", task["hint"])
+        self.assertEqual(
+            json.loads(task["destinations"]), ["website", "facebook"])
+        channels = [o["channel"] for o in self.store.list_outputs(task["code"])]
+        self.assertEqual(sorted(channels), ["facebook", "website"])
+
+    def test_wizard_contributor_needs_a_file(self):
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/giaoviec"))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_done_files"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(state["state"], "wizard_files")
+        self.assertTrue(self.api.answered[-1]["show_alert"])
+
+    def test_wizard_cancel_clears_state(self):
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/giaoviec"))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_cancel"))
+        self.assertIsNone(self.store.get_user_state(CONTRIBUTOR))
+        self.assertEqual(self.store.list_tasks(), [])
+
+    def test_card_refreshes_in_place_on_submit(self):
+        task = self.create_contributor_task()
+        self.api.edits.clear()
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_submit:{task['code']}"))
+        self.assertTrue(self.api.edits)
+        edit = self.api.edits[-1]
+        self.assertEqual(edit["chat_id"], CONTRIBUTOR)
+        self.assertIn("Chờ duyệt (PENDING)", edit["text"])
+
+    def test_choduyet_and_thongke_for_reviewers_only(self):
+        task = self.create_contributor_task()
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_submit:{task['code']}"))
+        self.api.sent.clear()
+        self.app.handle_update(message_update(EDITOR, text="/choduyet"))
+        self.assertTrue(any("CV-0001" in t for t in self.api.texts_to(EDITOR)))
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/choduyet"))
+        self.assertTrue(any(
+            "không có quyền" in t for t in self.api.texts_to(CONTRIBUTOR)))
+        self.app.handle_update(message_update(ADMIN, text="/thongke"))
+        stats = [t for t in self.api.texts_to(ADMIN) if "Thống kê" in t]
+        self.assertTrue(stats)
+        self.assertIn("Chờ duyệt (PENDING): 1", stats[-1])
 
 
 if __name__ == "__main__":

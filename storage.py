@@ -300,6 +300,21 @@ class Store:
                 (creator_id, limit),
             ).fetchall()
 
+    def count_tasks_by_status(self):
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT status, COUNT(*) AS n FROM tasks GROUP BY status"
+            ).fetchall()
+        return {r["status"]: r["n"] for r in rows}
+
+    def count_outputs_by_status(self):
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT channel, status, COUNT(*) AS n FROM outputs "
+                "GROUP BY channel, status ORDER BY channel, status"
+            ).fetchall()
+        return [(r["channel"], r["status"], r["n"]) for r in rows]
+
     def needs_article(self):
         """Tasks Muse still has to write / process: DRAFT and PENDING."""
         with self._lock:

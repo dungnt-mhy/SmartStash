@@ -35,6 +35,13 @@ def main(argv=None) -> int:
     client = TelegramClient()
     app = BotApp(store, client, files_dir=data_dir / "files", download_files=True)
 
+    # Register the Menu-button command lists (base list globally, longer
+    # lists per user chat for reviewers/admins). Never block startup.
+    try:
+        app.sync_all_commands()
+    except Exception as exc:
+        print(f"setMyCommands lỗi (bỏ qua): {exc}", file=sys.stderr)
+
     offset_raw = store.get_meta("update_offset")
     offset = int(offset_raw) if offset_raw else None
     print("Bot giao việc đang chạy (long polling). Ctrl+C để dừng.", flush=True)

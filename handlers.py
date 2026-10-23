@@ -13,6 +13,7 @@ from pathlib import Path
 import roles
 from storage import (
     CHANNELS,
+    CHANNEL_ORDER,
     DEFAULT_DESTINATIONS,
     STATUS_APPROVED_WAITING,
     STATUS_CANCELLED,
@@ -82,17 +83,93 @@ CREATOR_ROLES = (roles.ROLE_WRITER, roles.ROLE_CONTRIBUTOR,
 HELP_TEXT = (
     "🤖 Bot giao việc viết bài\n\n"
     "/start — đăng ký / bắt đầu\n"
-    "/vaitro — xem danh sách vai trò\n"
+    "/giaoviec — giao việc mới (hướng dẫn từng bước)\n"
     "/viec — xem danh sách việc\n"
+    "/choduyet — việc đang chờ duyệt (người duyệt)\n"
+    "/thongke — thống kê việc (người duyệt)\n"
+    "/vaitro — xem danh sách vai trò\n"
     "/capquyen — cấp quyền (Admin / Phó Admin)\n"
     "/thuhoi — thu hồi quyền (Admin / Phó Admin)\n"
     "/danhsach — danh sách người dùng + vai trò (Admin / Phó Admin)\n\n"
-    "Gửi ảnh/tài liệu (kèm chú thích làm gợi ý), rồi nhắn một tin nhắn "
-    "văn bản để chốt tạo việc.\n"
+    "Cách nhanh: dùng các nút ở bàn phím dưới khung chat. Cũng có thể "
+    "gửi thẳng ảnh/tài liệu (kèm chú thích làm gợi ý), rồi nhắn một "
+    "tin nhắn văn bản để chốt tạo việc.\n"
     "Trên thẻ việc: bấm ✏️ Chỉnh sửa để sửa gợi ý, bấm các nút ✅/⬜ để "
     "chọn nơi đăng, bấm 🗑 Thu hồi việc để hủy việc chưa đăng (bài đã "
     "đăng thì dùng nút ↩️ Thu hồi bài đã đăng)."
 )
+
+#: Main reply-keyboard button labels. A tap on a reply-keyboard button
+#: arrives as an ordinary text message whose text is exactly the label,
+#: so these strings are protocol constants, matched verbatim in
+#: handle_message.
+BTN_NEW_TASK = "📝 Giao việc mới"
+BTN_MY_TASKS = "📋 Việc của tôi"
+BTN_ALL_TASKS = "📋 Tất cả việc"
+BTN_PENDING = "⏳ Chờ duyệt"
+BTN_STATS = "📊 Thống kê"
+BTN_USERS = "👥 Người dùng"
+BTN_HELP = "❓ Trợ giúp"
+
+
+def main_keyboard(user):
+    """The persistent reply keyboard for a user's role (the bot's home
+    screen). Reviewers get the review queue and statistics; Admin and
+    Phó Admin also get user management. Pending users only get help."""
+    help_btn = {"text": BTN_HELP}
+    if user is None or user["role"] is None:
+        rows = [[help_btn]]
+    elif roles.can_review(user["role"]):
+        rows = [
+            [{"text": BTN_NEW_TASK}, {"text": BTN_PENDING}],
+            [{"text": BTN_ALL_TASKS}, {"text": BTN_STATS}],
+        ]
+        if user["role"] in (roles.ROLE_ADMIN, roles.ROLE_DEPUTY):
+            rows.append([{"text": BTN_USERS}, help_btn])
+        else:
+            rows.append([help_btn])
+    else:
+        rows = [
+            [{"text": BTN_NEW_TASK}, {"text": BTN_MY_TASKS}],
+            [help_btn],
+        ]
+    return {
+        "keyboard": rows,
+        "resize_keyboard": True,
+        "is_persistent": True,
+        "input_field_placeholder": "Gửi ảnh + gợi ý, hoặc bấm nút bên dưới…",
+    }
+
+
+#: Command lists for the bottom-left Menu button. Telegram has no
+#: per-role command scope, so the base list is registered for everyone
+#: and a longer list is registered per private chat (BotCommandScopeChat)
+#: for reviewers and admins. The menu is presentation only; every
+#: command is still authorised server-side.
+BASE_COMMANDS = [
+    {"command": "start", "description": "Bắt đầu / đăng ký"},
+    {"command": "giaoviec", "description": "Giao việc mới (từng bước)"},
+    {"command": "viec", "description": "Danh sách việc"},
+    {"command": "vaitro", "description": "Danh sách vai trò"},
+    {"command": "help", "description": "Trợ giúp"},
+]
+REVIEWER_COMMANDS = BASE_COMMANDS + [
+    {"command": "choduyet", "description": "Việc đang chờ duyệt"},
+    {"command": "thongke", "description": "Thống kê việc"},
+]
+ADMIN_COMMANDS = REVIEWER_COMMANDS + [
+    {"command": "danhsach", "description": "Danh sách người dùng"},
+    {"command": "capquyen", "description": "Cấp quyền cho người dùng"},
+    {"command": "thuhoi", "description": "Thu hồi quyền người dùng"},
+]
+
+
+def commands_for_role(role):
+    if role in (roles.ROLE_ADMIN, roles.ROLE_DEPUTY):
+        return ADMIN_COMMANDS
+    if role == roles.ROLE_EDITOR:
+        return REVIEWER_COMMANDS
+    return BASE_COMMANDS
 
 
 def _btn(text, callback_data):
@@ -153,6 +230,70 @@ class BotApp:
         except Exception:
             return None
 
+    def _edit_card(self, chat_id, message_id, text, reply_markup=None):
+        """Edit a card message in place. A missing keyboard means the
+        card is closed, so an empty inline keyboard is sent to strip
+        any buttons the old card still shows."""
+        if chat_id is None or message_id is None:
+            return None
+        fn = getattr(self.api, "edit_message_text", None)
+        if fn is None:
+            return None
+        try:
+            return fn(
+                chat_id, message_id, text,
+                reply_markup=reply_markup if reply_markup is not None
+                else {"inline_keyboard": []},
+            )
+        except Exception:
+            return None
+
+    def _edit_markup(self, chat_id, message_id, reply_markup):
+        if chat_id is None or message_id is None:
+            return None
+        fn = getattr(self.api, "edit_message_reply_markup", None)
+        if fn is None:
+            return None
+        try:
+            return fn(chat_id, message_id, reply_markup=reply_markup)
+        except Exception:
+            return None
+
+    def _send_main(self, chat_id, text, user):
+        """Send a plain message carrying the user's main reply keyboard."""
+        return self._send(chat_id, text, reply_markup=main_keyboard(user))
+
+    # ------------------------------------------------- menu command sync
+    def sync_user_commands(self, user):
+        """Register the Menu-button command list for one user's private
+        chat, matching their current role. Never raises: the menu is a
+        convenience, not a permission."""
+        if user is None:
+            return
+        fn = getattr(self.api, "set_my_commands", None)
+        if fn is None:
+            return
+        chat_id = user["chat_id"] or user["telegram_id"]
+        try:
+            fn(commands_for_role(user["role"]),
+               scope={"type": "chat", "chat_id": chat_id})
+        except Exception:
+            pass
+
+    def sync_all_commands(self):
+        """Register the base command list globally and refresh every
+        known user's per-chat list. Called once at startup."""
+        fn = getattr(self.api, "set_my_commands", None)
+        if fn is None:
+            return
+        for scope in (None, {"type": "all_private_chats"}):
+            try:
+                fn(list(BASE_COMMANDS), scope=scope)
+            except Exception:
+                pass
+        for u in self.store.list_users():
+            self.sync_user_commands(u)
+
     def _touch_user(self, tg_user, chat_id):
         """Refresh profile/chat_id of a known user (role is preserved)."""
         existing = self.store.get_user(tg_user["id"])
@@ -204,6 +345,19 @@ class BotApp:
         if state and state["state"] == "await_output_reject_reason" and text:
             self._apply_output_reject_reason(
                 user, chat_id, text, state["payload"])
+            return
+
+        # Main reply-keyboard buttons arrive as ordinary text messages
+        # whose text is exactly the button label.
+        if text and self._handle_keyboard_label(user, tg_user, chat_id, text):
+            return
+
+        # The step-by-step creation wizard owns messages while active.
+        if state and state["state"] in ("wizard_files", "wizard_hint"):
+            self._wizard_message(
+                user, chat_id, state, text,
+                self._extract_media(message), message.get("caption"),
+            )
             return
 
         media_item = self._extract_media(message)
@@ -288,10 +442,10 @@ class BotApp:
             "hoặc dùng /viec để xem danh sách việc.",
         )
 
-    def _create_task(self, user, chat_id, hint, file_ids):
+    def _create_task(self, user, chat_id, hint, file_ids, destinations=None):
         task = self.store.create_task(
             creator_id=user["telegram_id"], creator_role=user["role"],
-            hint=hint, file_ids=file_ids,
+            hint=hint, file_ids=file_ids, destinations=destinations,
         )
         self.store.audit(
             user["telegram_id"], "create_task", "task", task["code"],
@@ -439,6 +593,9 @@ class BotApp:
             "/capquyen": self._cmd_capquyen,
             "/thuhoi": self._cmd_thuhoi,
             "/viec": self._cmd_viec,
+            "/giaoviec": self._cmd_giaoviec,
+            "/choduyet": self._cmd_choduyet,
+            "/thongke": self._cmd_thongke,
             "/help": self._cmd_help,
             "/trogiup": self._cmd_help,
         }.get(command)
@@ -456,24 +613,31 @@ class BotApp:
                 tg_user["id"], tg_user.get("username"),
                 _display_name(tg_user), chat_id,
             )
+        self.sync_user_commands(user)
         lines = [f"Xin chào {user['display_name']}!"]
         if user["role"]:
             lines.append(f"Vai trò của bạn: {roles.role_title(user['role'])}.")
-            lines.append("Gửi ảnh/tài liệu kèm gợi ý để tạo việc, hoặc /viec để xem việc.")
-            self._send(chat_id, "\n".join(lines))
+            lines.append(
+                "Bấm 📝 Giao việc mới để tạo việc từng bước, "
+                "hoặc gửi thẳng ảnh kèm gợi ý như trước."
+            )
+            self._send(chat_id, "\n".join(lines),
+                       reply_markup=main_keyboard(user))
             return
         lines.append(
             "Bạn đã đăng ký và đang chờ cấp quyền. "
             "Admin sẽ cấp quyền cho bạn ngay trong Telegram."
         )
-        markup = None
+        self._send(chat_id, "\n".join(lines),
+                   reply_markup=main_keyboard(user))
         if not self.store.has_admin():
-            lines.append(
+            self._send(
+                chat_id,
                 "Hiện chưa có Admin. Nếu bạn là chủ website, "
-                "bấm nút dưới đây để nhận quyền Admin."
+                "bấm nút dưới đây để nhận quyền Admin.",
+                reply_markup=_keyboard(
+                    [[_btn("👑 Nhận quyền Admin", "claim_admin")]]),
             )
-            markup = _keyboard([[_btn("👑 Nhận quyền Admin", "claim_admin")]])
-        self._send(chat_id, "\n".join(lines), reply_markup=markup)
 
     def _cmd_vaitro(self, user, tg_user, chat_id):
         self._send(chat_id, roles.roles_overview_text())
@@ -569,6 +733,268 @@ class BotApp:
             )
         self._send(chat_id, "\n".join(lines))
 
+    def _cmd_choduyet(self, user, tg_user, chat_id):
+        if user is None or not roles.can_review(user["role"]):
+            self._send(chat_id, "⛔ Bạn không có quyền xem hàng chờ duyệt.")
+            return
+        tasks = [
+            t for t in self.store.list_tasks(limit=50)
+            if t["status"] == STATUS_PENDING
+        ]
+        if not tasks:
+            self._send(chat_id, "⏳ Không có việc nào đang chờ duyệt.")
+            return
+        lines = ["⏳ Việc đang chờ duyệt:"]
+        for t in tasks:
+            hint = (t["hint"] or "").replace("\n", " ")[:60]
+            creator = self.store.get_user(t["creator_id"])
+            creator_name = creator["display_name"] if creator else str(t["creator_id"])
+            lines.append(
+                f"- {t['code']} • {creator_name} • "
+                f"{_format_created(t['created_at'])} • {hint}"
+            )
+        lines.append("Mở thẻ việc trong cuộc trò chuyện để duyệt hoặc trả lại.")
+        self._send(chat_id, "\n".join(lines))
+
+    def _cmd_thongke(self, user, tg_user, chat_id):
+        if user is None or not roles.can_review(user["role"]):
+            self._send(chat_id, "⛔ Bạn không có quyền xem thống kê.")
+            return
+        task_counts = self.store.count_tasks_by_status()
+        total = sum(task_counts.values())
+        lines = [f"📊 Thống kê việc (tổng {total} việc):"]
+        for status in (STATUS_DRAFT, STATUS_PENDING, STATUS_APPROVED_WAITING,
+                       STATUS_PUBLISHED, STATUS_REJECTED, STATUS_CANCELLED,
+                       STATUS_RETRACTED):
+            if task_counts.get(status):
+                lines.append(
+                    f"• {STATUS_LABELS.get(status, status)}: {task_counts[status]}"
+                )
+        out_counts = self.store.count_outputs_by_status()
+        if out_counts:
+            by_channel = {}
+            for channel, status, n in out_counts:
+                by_channel.setdefault(channel, []).append((status, n))
+            lines.append("")
+            lines.append("Đầu ra theo kênh:")
+            for channel in CHANNEL_ORDER:
+                if channel not in by_channel:
+                    continue
+                label = CHANNELS.get(channel, {}).get("label", channel)
+                parts = ", ".join(
+                    f"{STATUS_LABELS.get(s, s)}: {n}"
+                    for s, n in by_channel[channel]
+                )
+                lines.append(f"• {label}: {parts}")
+        self._send(chat_id, "\n".join(lines))
+
+    # ------------------------------------------- main keyboard label taps
+    def _handle_keyboard_label(self, user, tg_user, chat_id, text) -> bool:
+        """Dispatch a main reply-keyboard tap. Returns True when the
+        text was a button label (and has been handled)."""
+        if text == BTN_NEW_TASK:
+            self._wizard_start(user, chat_id)
+        elif text in (BTN_MY_TASKS, BTN_ALL_TASKS):
+            self._cmd_viec(user, tg_user, chat_id)
+        elif text == BTN_PENDING:
+            self._cmd_choduyet(user, tg_user, chat_id)
+        elif text == BTN_STATS:
+            self._cmd_thongke(user, tg_user, chat_id)
+        elif text == BTN_USERS:
+            self._cmd_danhsach(user, tg_user, chat_id)
+        elif text == BTN_HELP:
+            self._cmd_help(user, tg_user, chat_id)
+        else:
+            return False
+        return True
+
+    # ------------------------------------------------ creation wizard
+    def _cmd_giaoviec(self, user, tg_user, chat_id):
+        self._wizard_start(user, chat_id)
+
+    def _wizard_start(self, user, chat_id):
+        if user is None or user["role"] is None:
+            self._send(
+                chat_id,
+                "Bạn chưa được cấp quyền. Hãy gửi /start để đăng ký, "
+                "Admin sẽ cấp quyền cho bạn.",
+            )
+            return
+        if user["role"] not in CREATOR_ROLES:
+            self._send(chat_id, "Vai trò của bạn không được tạo việc.")
+            return
+        # Start clean: drop any half-finished legacy intake buffer so its
+        # files cannot leak into this wizard task (or a later one).
+        self.store.buffer_clear(chat_id, user["telegram_id"])
+        payload = {
+            "files": [], "captions": [],
+            "destinations": list(DEFAULT_DESTINATIONS), "hint": "",
+        }
+        self.store.set_user_state(user["telegram_id"], "wizard_files", payload)
+        self._send(
+            chat_id,
+            "📝 Giao việc mới — Bước 1/3: Gửi ảnh/slide cho việc này "
+            "(gửi bao nhiêu cũng được). Xong thì bấm nút bên dưới.",
+            reply_markup=_keyboard([
+                [_btn("✅ Xong, sang bước gợi ý", "wiz_done_files")],
+                [_btn("❌ Huỷ giao việc", "wiz_cancel")],
+            ]),
+        )
+
+    def _wizard_message(self, user, chat_id, state, text, media_item, caption):
+        if user is None or user["role"] is None:
+            return
+        payload = state["payload"]
+        step = state["state"]
+        if media_item is not None:
+            payload.setdefault("files", []).append(media_item["file_id"])
+            if caption:
+                payload.setdefault("captions", []).append(caption)
+            self.store.set_user_state(user["telegram_id"], step, payload)
+            note = (
+                "Gửi thêm, hoặc bấm ✅ Xong để sang bước gợi ý."
+                if step == "wizard_files"
+                else "Đã thêm file vào việc đang tạo."
+            )
+            self._send(
+                chat_id,
+                f"Đã nhận file (tổng {len(payload['files'])}). {note}",
+            )
+            return
+        if not text:
+            return
+        if step == "wizard_files":
+            self._send(
+                chat_id,
+                "Đang ở Bước 1: hãy gửi ảnh/slide, hoặc bấm ✅ Xong nếu "
+                "việc này không có file (Nhân viên viết bài trở lên có "
+                "thể giao việc chỉ bằng bản thảo).",
+            )
+            return
+        # wizard_hint: this text is the hint (or the writer's draft).
+        hints = list(payload.get("captions") or []) + [text]
+        payload["hint"] = "\n".join(h for h in hints if h)
+        self.store.set_user_state(
+            user["telegram_id"], "wizard_channels", payload)
+        self._send(
+            chat_id,
+            "Bước 3/3: Chọn nơi đăng cho việc này, rồi bấm ✅ Tạo việc.",
+            reply_markup=self._wizard_channels_keyboard(payload),
+        )
+
+    def _wizard_channels_keyboard(self, payload):
+        chosen = payload.get("destinations") or []
+        rows = [[
+            _btn(
+                f"{'✅' if key in chosen else '⬜'} {label}",
+                f"wiz_dest:{key}",
+            )
+            for key, label in DESTINATIONS
+        ]]
+        rows.append([
+            _btn("✅ Tạo việc", "wiz_create"),
+            _btn("❌ Huỷ", "wiz_cancel"),
+        ])
+        return _keyboard(rows)
+
+    def _wizard_state(self, user):
+        if user is None:
+            return None
+        state = self.store.get_user_state(user["telegram_id"])
+        if state and state["state"].startswith("wizard_"):
+            return state
+        return None
+
+    def _cb_wizard_done_files(self, callback_id, user, chat_id):
+        state = self._wizard_state(user)
+        if state is None or state["state"] != "wizard_files":
+            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
+                         show_alert=True)
+            return
+        payload = state["payload"]
+        if user["role"] == roles.ROLE_CONTRIBUTOR and not payload.get("files"):
+            self._answer(
+                callback_id,
+                "Cộng tác viên cần gửi ít nhất một ảnh/tài liệu trước.",
+                show_alert=True,
+            )
+            return
+        self.store.set_user_state(user["telegram_id"], "wizard_hint", payload)
+        self._answer(callback_id)
+        self._send(
+            chat_id,
+            "Bước 2/3: Nhắn gợi ý ngắn cho việc này "
+            "(Nhân viên viết bài có thể dán luôn bản thảo).",
+            reply_markup=_keyboard(
+                [[_btn("❌ Huỷ giao việc", "wiz_cancel")]]),
+        )
+
+    def _cb_wizard_dest(self, callback_id, user, chat_id, dest, message):
+        state = self._wizard_state(user)
+        if state is None or state["state"] != "wizard_channels":
+            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
+                         show_alert=True)
+            return
+        if dest not in DESTINATION_KEYS:
+            self._answer(callback_id, "Nơi đăng không hợp lệ.",
+                         show_alert=True)
+            return
+        payload = state["payload"]
+        chosen = list(payload.get("destinations") or [])
+        if dest in chosen:
+            chosen.remove(dest)
+        else:
+            chosen.append(dest)
+        payload["destinations"] = [k for k in DESTINATION_KEYS if k in chosen]
+        self.store.set_user_state(
+            user["telegram_id"], "wizard_channels", payload)
+        self._answer(callback_id)
+        self._edit_markup(
+            chat_id, (message or {}).get("message_id"),
+            self._wizard_channels_keyboard(payload),
+        )
+
+    def _cb_wizard_create(self, callback_id, user, chat_id):
+        state = self._wizard_state(user)
+        if state is None or state["state"] != "wizard_channels":
+            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
+                         show_alert=True)
+            return
+        if user["role"] not in CREATOR_ROLES:
+            self._answer(callback_id, "⛔ Vai trò của bạn không được tạo việc.",
+                         show_alert=True)
+            return
+        payload = state["payload"]
+        destinations = payload.get("destinations") or []
+        if not destinations:
+            self._answer(callback_id, "Hãy chọn ít nhất một nơi đăng.",
+                         show_alert=True)
+            return
+        if user["role"] == roles.ROLE_CONTRIBUTOR and not payload.get("files"):
+            self._answer(
+                callback_id,
+                "Cộng tác viên cần ít nhất một ảnh/tài liệu.",
+                show_alert=True,
+            )
+            return
+        hint = (payload.get("hint") or "").strip()
+        self.store.clear_user_state(user["telegram_id"])
+        self._answer(callback_id, "Đã tạo việc.")
+        self._create_task(user, chat_id, hint, payload.get("files") or [],
+                          destinations=destinations)
+
+    def _cb_wizard_cancel(self, callback_id, user, chat_id):
+        if user is not None:
+            state = self.store.get_user_state(user["telegram_id"])
+            if state and state["state"].startswith("wizard_"):
+                self.store.clear_user_state(user["telegram_id"])
+        self._answer(callback_id, "Đã huỷ giao việc.")
+        self._send_main(
+            chat_id,
+            "Đã huỷ giao việc. Bấm 📝 Giao việc mới khi cần tạo việc khác.",
+            user,
+        )
+
     # ------------------------------------------------------------ callbacks
     def handle_callback(self, callback: dict) -> None:
         callback_id = callback.get("id")
@@ -576,7 +1002,9 @@ class BotApp:
         tg_user = callback.get("from") or {}
         message = callback.get("message") or {}
         chat_id = (message.get("chat") or {}).get("id")
+        message_id = message.get("message_id")
         user = self._touch_user(tg_user, chat_id) if tg_user.get("id") else None
+        card_snapshot = self._card_snapshot(data)
 
         if data == "claim_admin":
             self._cb_claim_admin(callback_id, user, chat_id)
@@ -602,6 +1030,15 @@ class BotApp:
         elif data.startswith("revoke_confirm:"):
             self._cb_revoke_confirm(callback_id, user, chat_id,
                                     int(data.split(":")[1]))
+        elif data == "wiz_done_files":
+            self._cb_wizard_done_files(callback_id, user, chat_id)
+        elif data.startswith("wiz_dest:"):
+            self._cb_wizard_dest(callback_id, user, chat_id,
+                                 data.split(":", 1)[1], message)
+        elif data == "wiz_create":
+            self._cb_wizard_create(callback_id, user, chat_id)
+        elif data == "wiz_cancel":
+            self._cb_wizard_cancel(callback_id, user, chat_id)
         elif data.startswith("task_outputs:"):
             self._cb_task_outputs(
                 callback_id, user, chat_id, data.split(":", 1)[1])
@@ -620,6 +1057,56 @@ class BotApp:
             self._cb_task(callback_id, user, chat_id, action, code)
         else:
             self._answer(callback_id, "Thao tác không còn hiệu lực.")
+
+        self._refresh_tapped_card(card_snapshot, user, chat_id, message_id)
+
+    # ------------------------------------------- edit-in-place card refresh
+    def _card_snapshot(self, data):
+        """Remember a task/output card's state before a callback runs,
+        so the tapped card can be refreshed in place afterwards."""
+        try:
+            if data.startswith("task_"):
+                code = data.split(":", 2)[1] if data.startswith("task_dest:") \
+                    else data.split(":", 1)[1]
+                task = self.store.get_task(code)
+                if task is not None:
+                    return ("task", code,
+                            (task["status"], task["destinations"]))
+            elif data.startswith("out_"):
+                output_id = int(data.partition(":")[2])
+                output = self.store.get_output(output_id)
+                if output is not None:
+                    return ("output", output_id, output["status"])
+        except (ValueError, IndexError):
+            return None
+        return None
+
+    def _refresh_tapped_card(self, snapshot, user, chat_id, message_id):
+        """When a callback changed a task/output, rewrite the exact
+        message the button sat on instead of sending a fresh card, so
+        chats stay free of stale duplicate cards. Notifications to
+        other people are still sent as new messages by the handlers."""
+        if snapshot is None or user is None or message_id is None:
+            return
+        kind, key, before = snapshot
+        if kind == "task":
+            task = self.store.get_task(key)
+            if task is None:
+                return
+            if (task["status"], task["destinations"]) == before:
+                return
+            self._edit_card(chat_id, message_id, self.task_card_text(task),
+                            self.task_keyboard(task, user))
+        else:
+            output = self.store.get_output(key)
+            if output is None or output["status"] == before:
+                return
+            task = self.store.get_task(output["task_code"])
+            if task is None:
+                return
+            self._edit_card(chat_id, message_id,
+                            self.output_card_text(output, task),
+                            self.output_keyboard(output, user))
 
     # ------------------------------------------------------- claim admin flow
     def _cb_claim_admin(self, callback_id, user, chat_id):
@@ -660,10 +1147,14 @@ class BotApp:
         self.store.audit(user["telegram_id"], "grant_role",
                          "user", user["telegram_id"], detail="role=admin (claim)")
         self._answer(callback_id, "Bạn đã là Admin.")
-        self._send(
+        fresh = self.store.get_user(user["telegram_id"])
+        self.sync_user_commands(fresh)
+        self._send_main(
             chat_id,
             "👑 Bạn đã trở thành Admin gốc. Dùng /capquyen để cấp quyền "
-            "cho nhân viên, /danhsach để xem danh sách người dùng.",
+            "cho nhân viên, /danhsach để xem danh sách người dùng. "
+            "Bàn phím chính và menu lệnh của bạn đã được cập nhật.",
+            fresh,
         )
 
     # ------------------------------------------------------------ grant flow
@@ -746,11 +1237,15 @@ class BotApp:
                 "bấm nút dưới đây nếu muốn bật quyền đăng."
             )
         self._send(chat_id, "\n".join(lines), reply_markup=markup)
+        fresh_target = self.store.get_user(target_id)
+        self.sync_user_commands(fresh_target)
         if target["chat_id"]:
             self._send(
                 target["chat_id"],
                 f"Bạn đã được cấp vai trò: {roles.role_title(target_role)}. "
-                "Gửi ảnh/tài liệu kèm gợi ý để tạo việc, hoặc /vaitro để xem vai trò.",
+                "Bấm 📝 Giao việc mới để tạo việc, hoặc /vaitro để xem vai trò. "
+                "Bàn phím chính và menu lệnh của bạn đã được cập nhật.",
+                reply_markup=main_keyboard(fresh_target),
             )
 
     def _cb_grant_publish_toggle(self, callback_id, user, chat_id, target_id):
@@ -809,9 +1304,12 @@ class BotApp:
                          detail=f"was_role={old_role}")
         self._answer(callback_id, "Đã thu hồi quyền.")
         self._send(chat_id, f"✅ Đã thu hồi quyền của {target['display_name']}.")
+        fresh_target = self.store.get_user(target_id)
+        self.sync_user_commands(fresh_target)
         if target["chat_id"]:
             self._send(target["chat_id"],
-                       "Quyền của bạn trên bot giao việc đã bị thu hồi.")
+                       "Quyền của bạn trên bot giao việc đã bị thu hồi.",
+                       reply_markup=main_keyboard(fresh_target))
 
     # ------------------------------------------------------------- task flow
     def _cb_task(self, callback_id, user, chat_id, action, code):

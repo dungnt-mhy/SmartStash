@@ -65,16 +65,31 @@ khi chính thức vận hành.
 
 ## 4. Danh sách lệnh
 
+Bot có 3 lớp giao diện (theo bản thiết kế trong `docs/`): **menu lệnh**
+ở nút Menu cạnh khung chat — danh sách lệnh theo vai trò, người duyệt
+và Admin thấy thêm lệnh quản trị; **bàn phím chính** ghim dưới khung
+chat hiện ngay sau `/start`, mỗi vai trò một bộ nút; và **nút inline**
+trên thẻ việc/thẻ kênh. Khi bấm một nút thao tác trên thẻ, chính thẻ đó
+được sửa tại chỗ cho khớp trạng thái mới (thông báo cho người khác vẫn
+là tin nhắn mới như trước).
+
 | Lệnh | Ai dùng | Tác dụng |
 |---|---|---|
-| `/start` | Mọi người | Đăng ký (trạng thái chờ cấp quyền); người đầu tiên có thể nhận quyền Admin gốc |
+| `/start` | Mọi người | Đăng ký (trạng thái chờ cấp quyền); người đầu tiên có thể nhận quyền Admin gốc; hiện bàn phím chính theo vai trò |
+| `/giaoviec` | Người đã được cấp quyền tạo việc | Giao việc mới theo 3 bước hướng dẫn: gửi file → nhập gợi ý → chọn nơi đăng → bấm Tạo việc |
 | `/vaitro` | Mọi người | Xem danh sách vai trò và quyền của từng vai trò |
 | `/danhsach` | Admin, Phó Admin | Xem danh sách người dùng + vai trò |
 | `/capquyen` | Admin, Phó Admin | Cấp quyền: chọn người → chọn vai trò → bấm Xác nhận mới áp dụng |
 | `/thuhoi` | Admin, Phó Admin | Thu hồi quyền: chọn người → bấm Xác nhận |
 | `/viec` | Người đã được cấp quyền | Xem việc: Admin/Phó Admin/Biên tập viên xem tất cả, người viết/cộng tác viên xem việc của mình |
+| `/choduyet` | Admin, Phó Admin, Biên tập viên | Xem các việc đang ở trạng thái chờ duyệt (PENDING) |
+| `/thongke` | Admin, Phó Admin, Biên tập viên | Thống kê nhanh: số việc theo trạng thái, số đầu ra theo kênh/trạng thái |
 
 ### Giao việc (tạo bài)
+
+Cách mới (khuyên dùng): bấm **📝 Giao việc mới** trên bàn phím chính
+(hoặc lệnh `/giaoviec`) rồi làm theo 3 bước bot hướng dẫn. Cách cũ vẫn
+dùng được:
 
 1. Gửi **ảnh hoặc tài liệu/slide** cho bot (chú thích/caption của ảnh
    được lưu làm gợi ý).
