@@ -714,6 +714,37 @@ class BotTestCase(unittest.TestCase):
         rc = botctl.cmd_set_output_retracted(self.store, args)
         self.assertEqual(rc, 1)
 
+    def test_image_host_retries_put_after_409(self):
+        # Parallel photo uploads race on the repo branch head and
+        # GitHub answers 409 — the host must re-read and retry
+        # instead of dropping the photo from the draft page.
+        import tempfile
+        from pathlib import Path
+
+        from image_host import ImageHost
+
+        with tempfile.TemporaryDirectory() as td:
+            img = Path(td) / "x.jpg"
+            img.write_bytes(b"\xff\xd8 fake jpeg")
+            host = ImageHost(Path(td) / "cache.json")
+            calls = {"put": 0}
+
+            def fake_api(method, path, payload=None):
+                if method == "GET":
+                    return 404, {}
+                calls["put"] += 1
+                if calls["put"] == 1:
+                    return 409, {"message": "sha mismatch"}
+                return 201, {"content": {
+                    "download_url": "https://raw.example/x.jpg"}}
+
+            host._api = fake_api
+            url = host.upload(img, "draft-media/T/x.jpg")
+            self.assertEqual(url, "https://raw.example/x.jpg")
+            self.assertEqual(calls["put"], 2)
+            self.assertEqual(host.upload(img, "draft-media/T/x.jpg"), url)
+            self.assertEqual(calls["put"], 2)
+
     def test_output_submit_blocked_until_draft_attached(self):
         # The exact flaw the owner reported: submitting for review while
         # no article exists yet. The channel card refuses until Muse's

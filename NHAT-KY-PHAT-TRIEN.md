@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Tải ảnh lên kho GitHub tự thử lại khi bị xung đột 409
+- **Hạng mục:** Độ tin cậy
+- **Thay đổi:** Khi gắn nháp CV-0007 và CV-0008, một ảnh tải lên kho GitHub bị lỗi 409 (các lượt tải song song giành nhau đầu nhánh repo) khiến trang nháp suýt thiếu ảnh, phải gắn lại thủ công. Nay `ImageHost.upload` tự đọc lại mã sha và thử lại tối đa 3 lần khi gặp 409/422 trước khi chịu thua.
+- **Trạng thái:** Đã xong. Kiểm thử 122/122 đạt.
+
 ### 2026-10-23 — Thu hồi Facebook = xoá bài thật
 - **Hạng mục:** Tính năng mới
 - **Thay đổi:** Trước đây nút Thu hồi chỉ đổi trạng thái trong hệ thống, bài trên Facebook vẫn còn nguyên. Chủ dự án đã chọn nâng cấp: với kênh Facebook, bấm Thu hồi → hộp xác nhận nói rõ "Bài sẽ bị XOÁ THẬT trên Facebook" → xác nhận chỉ ghi lệnh `retract_requested` (không lật trạng thái oan như lỗi đăng ảo trước đây, có chặn bấm trùng khi lệnh đang xử lý). Muse mở link bài bằng trình duyệt, xoá thật, kiểm chứng bài đã biến mất rồi hoàn tất bằng lệnh mới `botctl set-output-retracted`: lúc đó thẻ mới chuyển "Đã thu hồi" (link ghi "Bài đã xoá") và Telegram nhận đúng 1 thông báo. Kênh khác giữ cách thu hồi trong hệ thống như cũ.

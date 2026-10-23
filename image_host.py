@@ -20,6 +20,7 @@ import hashlib
 import threading
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -92,21 +93,32 @@ class ImageHost:
             if digest in self._cache:
                 return self._cache[digest]["url"]
         api_path = f"/repos/{REPO}/contents/{dest_path}"
-        status, existing = self._api("GET", api_path)
-        payload = {
-            "message": f"Ảnh bản nháp: {dest_path}",
-            "content": base64.b64encode(data).decode("ascii"),
-        }
-        if status == 200 and isinstance(existing, dict) \
-                and existing.get("sha"):
-            payload["sha"] = existing["sha"]
-        status, result = self._api("PUT", api_path, payload)
-        if status not in (200, 201) or not isinstance(result, dict):
-            raise ImageHostError(
-                f"GitHub upload failed ({status}): "
-                f"{result.get('message', '') if isinstance(result, dict) else ''}")
-        url = result["content"]["download_url"]
-        with self._cache_lock:
-            self._cache[digest] = {"url": url, "dest": dest_path}
-            self._save()
-        return url
+        content = base64.b64encode(data).decode("ascii")
+        # Uploads race on the branch head (parallel photos, other
+        # commits): a PUT can come back 409 even for an unrelated
+        # file. Re-read the sha and retry a few times before failing
+        # — one photo missing from a draft page is worse than a
+        # second's wait (seen on CV-0007 and CV-0008).
+        status, result = 0, {}
+        for attempt in range(3):
+            _gs, existing = self._api("GET", api_path)
+            payload = {
+                "message": f"Ảnh bản nháp: {dest_path}",
+                "content": content,
+            }
+            if _gs == 200 and isinstance(existing, dict) \
+                    and existing.get("sha"):
+                payload["sha"] = existing["sha"]
+            status, result = self._api("PUT", api_path, payload)
+            if status in (200, 201) and isinstance(result, dict):
+                url = result["content"]["download_url"]
+                with self._cache_lock:
+                    self._cache[digest] = {"url": url, "dest": dest_path}
+                    self._save()
+                return url
+            if status not in (409, 422):
+                break
+            time.sleep(0.8 * (attempt + 1))
+        raise ImageHostError(
+            f"GitHub upload failed ({status}): "
+            f"{result.get('message', '') if isinstance(result, dict) else ''}")
