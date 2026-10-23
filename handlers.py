@@ -152,7 +152,7 @@ BTN_WIZ_CANCEL = "🗑 Huỷ giao việc"
 
 def wizard_files_keyboard():
     return {
-        "keyboard": [[{"text": BTN_WIZ_DONE}], [{"text": BTN_WIZ_CANCEL}]],
+        "keyboard": [[{"text": BTN_WIZ_DONE}, {"text": BTN_WIZ_CANCEL}]],
         "resize_keyboard": True,
         "is_persistent": True,
         "input_field_placeholder": "Đang giao việc — gửi ảnh/slide vào đây…",
@@ -936,7 +936,11 @@ class BotApp:
             self._wizard_start(user, chat_id)
         elif text == BTN_WIZ_DONE:
             self._wizard_advance_from_files(user, chat_id)
-        elif text == BTN_WIZ_CANCEL:
+        elif text in (BTN_WIZ_CANCEL, "❌ Huỷ giao việc"):
+            # "❌ Huỷ giao việc" is the pre-rename label: keyboards
+            # already on users' screens still send it, and a tap must
+            # cancel (and thereby restore the main keyboard) instead
+            # of landing nowhere while the button lingers.
             self._wizard_cancel(user, chat_id)
         elif text in (BTN_MY_TASKS, BTN_ALL_TASKS):
             self._cmd_viec(user, tg_user, chat_id)

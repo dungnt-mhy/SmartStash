@@ -1192,6 +1192,20 @@ class Phase1TestCase(BotTestCase):
         self.assertEqual(state["state"], "wizard_files")
         self.assertTrue(self.api.answered[-1]["show_alert"])
 
+    def test_wizard_legacy_cancel_label_still_cancels(self):
+        # Keyboards sent before the cancel button was renamed to the
+        # trash icon still emit the old "❌ Huỷ giao việc" label —
+        # tapping it must cancel (and restore the main keyboard), not
+        # linger unresponsive on screen.
+        self.app.handle_update(message_update(CONTRIBUTOR, text="/giaoviec"))
+        self.assertIsNotNone(self.store.get_user_state(CONTRIBUTOR))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="❌ Huỷ giao việc"))
+        self.assertIsNone(self.store.get_user_state(CONTRIBUTOR))
+        self.assertTrue(any(
+            "Đã huỷ giao việc" in t
+            for t in self.api.texts_to(CONTRIBUTOR)))
+
     def test_wizard_cancel_clears_state(self):
         self.app.handle_update(message_update(CONTRIBUTOR, text="/giaoviec"))
         self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_cancel"))

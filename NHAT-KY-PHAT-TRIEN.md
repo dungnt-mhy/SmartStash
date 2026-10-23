@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Sửa lỗi nút "Huỷ giao việc" bấm không ăn (bàn phím cũ sau khi đổi tên nút)
+- **Hạng mục:** Sửa lỗi
+- **Thay đổi:** Chủ dự án phản ánh nút "❌ Huỷ giao việc" cứ hiện mãi, bấm không ăn. Nguyên nhân: nút đã được đổi tên thành "🗑 Huỷ giao việc" (icon thùng rác) nhưng Telegram giữ bàn phím cũ trên máy người dùng — nhãn cũ bấm vào không khớp nhãn mới nên bot không nhận. Đã thêm **nhãn tương thích ngược** cho nút Huỷ wizard (nhãn ❌ cũ vẫn hủy được, đồng thời khôi phục bàn phím chính); các nút bị gỡ khỏi bàn phím chính (Người dùng/Thống kê/Tất cả việc) vốn vẫn còn đường xử lý nên không lỗi tương tự. Bàn phím Bước 1 của wizard gộp [Xong | Huỷ] vào 1 hàng cho gọn.
+- **Trạng thái:** Đã xong. Kiểm thử 91/91 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Hàng nút duyệt trên thẻ kênh: Duyệt · Trả lại · Hủy bài
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo chỉ đạo của chủ dự án: nút "↩️ Trả lại kèm yêu cầu sửa" rút gọn tên thành **"↩️ Trả lại"** (lời nhắc nhập nội dung cần sửa giữ nguyên khi bấm); thêm nút mới **"🗑 Hủy bài"** — hủy hẳn đầu ra của kênh đó (trạng thái CANCELLED, thẻ mất hết nút), chỉ người có quyền duyệt mới bấm được, bấm xong chỉ 1 tin báo cho người bấm. Trên thẻ đang chờ duyệt, ba nút **Duyệt · Trả lại · Hủy bài nằm cùng 1 hàng**; trên thẻ kênh đang Nháp đã có bản nháp, hàng tương ứng là [Trả lại · Hủy bài].
