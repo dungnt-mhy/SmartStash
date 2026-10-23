@@ -20,6 +20,11 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thông báo "Phiên giao việc đã kết thúc": bỏ hộp thoại, chuyển thành toast nhẹ
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Chủ dự án chê hộp thoại cảnh báo (modal alert) khi bấm nút của phiên giao việc đã đóng. Cả 5 chỗ trả lời "Phiên giao việc đã kết thúc" chuyển từ alert modal sang **toast nhỏ** kèm câu chữ thân thiện: "⌛ Phiên giao việc này đã kết thúc. 📝 Bấm Giao việc mới để bắt đầu việc khác." Các cảnh báo quan trọng (quyền, trạng thái) vẫn giữ dạng hộp thoại để gây chú ý.
+- **Trạng thái:** Đã xong. Kiểm thử 92/92 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Nút chọn kênh: bỏ tích xanh, icon đổi thành ❌ khi bỏ chọn; bỏ nút "Chọn tất cả"
 - **Hạng mục:** Trải nghiệm người dùng
 - **Thay đổi:** Theo chỉ đạo của chủ dự án: nút kênh đang chọn chỉ hiện **icon + tên kênh** (bỏ hẳn dấu ✅ phía trước); chạm để bỏ chọn thì **icon của kênh đổi thành ❌** (tên kênh giữ nguyên), chạm lại thì icon trở lại. **Bỏ nút "Chọn tất cả"** ở cả wizard Bước 3 lẫn thẻ việc — chỉ có 3 kênh, không cần nút này. (Chủ dự án cũng xác nhận emoji không có icon Facebook/Instagram chính thức; bộ icon 🌐/📘/📸 giữ nguyên làm biểu tượng đại diện.)

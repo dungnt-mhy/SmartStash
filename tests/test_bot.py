@@ -1206,6 +1206,14 @@ class Phase1TestCase(BotTestCase):
             "Đã huỷ giao việc" in t
             for t in self.api.texts_to(CONTRIBUTOR)))
 
+    def test_stale_wizard_button_gets_toast_not_alert(self):
+        # Tapping a button of an already-finished wizard shows a
+        # small toast (no modal alert) with a friendly pointer.
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
+        answer = self.api.answered[-1]
+        self.assertFalse(answer.get("show_alert"))
+        self.assertIn("đã kết thúc", answer["text"])
+
     def test_wizard_cancel_clears_state(self):
         self.app.handle_update(message_update(CONTRIBUTOR, text="/giaoviec"))
         self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_cancel"))

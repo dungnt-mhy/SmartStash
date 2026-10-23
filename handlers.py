@@ -1103,8 +1103,7 @@ class BotApp:
     def _cb_wizard_hint(self, callback_id, user, chat_id):
         state = self._wizard_state(user)
         if state is None or state["state"] != "wizard_channels":
-            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
-                         show_alert=True)
+            self._answer(callback_id, "⌛ Phiên giao việc này đã kết thúc.\n📝 Bấm Giao việc mới để bắt đầu việc khác.")
             return
         payload = state["payload"]
         payload["edit_hint"] = True
@@ -1117,8 +1116,7 @@ class BotApp:
     def _cb_wizard_dest_all(self, callback_id, user, chat_id, message):
         state = self._wizard_state(user)
         if state is None or state["state"] != "wizard_channels":
-            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
-                         show_alert=True)
+            self._answer(callback_id, "⌛ Phiên giao việc này đã kết thúc.\n📝 Bấm Giao việc mới để bắt đầu việc khác.")
             return
         payload = state["payload"]
         payload["destinations"] = list(DESTINATION_KEYS)
@@ -1145,8 +1143,7 @@ class BotApp:
         state = self._wizard_state(user)
         if state is None or state["state"] != "wizard_files":
             if callback_id:
-                self._answer(callback_id, "Phiên giao việc đã kết thúc.",
-                             show_alert=True)
+                self._answer(callback_id, "⌛ Phiên giao việc này đã kết thúc.\n📝 Bấm Giao việc mới để bắt đầu việc khác.")
             else:
                 self._send_main(
                     chat_id,
@@ -1179,8 +1176,7 @@ class BotApp:
     def _cb_wizard_dest(self, callback_id, user, chat_id, dest, message):
         state = self._wizard_state(user)
         if state is None or state["state"] != "wizard_channels":
-            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
-                         show_alert=True)
+            self._answer(callback_id, "⌛ Phiên giao việc này đã kết thúc.\n📝 Bấm Giao việc mới để bắt đầu việc khác.")
             return
         if dest not in DESTINATION_KEYS:
             self._answer(callback_id, "Nơi đăng không hợp lệ.",
@@ -1204,8 +1200,7 @@ class BotApp:
     def _cb_wizard_create(self, callback_id, user, chat_id):
         state = self._wizard_state(user)
         if state is None or state["state"] != "wizard_channels":
-            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
-                         show_alert=True)
+            self._answer(callback_id, "⌛ Phiên giao việc này đã kết thúc.\n📝 Bấm Giao việc mới để bắt đầu việc khác.")
             return
         if user["role"] not in CREATOR_ROLES:
             self._answer(callback_id, "⛔ Vai trò của bạn không được tạo việc.",
