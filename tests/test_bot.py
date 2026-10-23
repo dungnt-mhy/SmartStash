@@ -30,6 +30,21 @@ NEWBIE = 444
 FIRST = 555
 
 
+class FakeTelegraph:
+    """Records publish calls instead of hitting telegra.ph."""
+
+    instances = []
+
+    def __init__(self, state_file):
+        self.state_file = state_file
+        self.calls = []
+        FakeTelegraph.instances.append(self)
+
+    def publish(self, key, title, nodes):
+        self.calls.append({"key": key, "title": title, "nodes": nodes})
+        return "https://telegra.ph/trang-nhap-mau-10-23"
+
+
 class FakeApi:
     """Records every sendMessage / answerCallbackQuery instead of calling
     the real Telegram API."""
@@ -739,10 +754,26 @@ class BotTestCase(unittest.TestCase):
                 and "https://example.com/draft/fb" in t for t in texts),
                 f"no channel card sent to {chat_id}")
 
-    def test_attach_output_draft_with_file_delivers_readable_content(self):
-        # The owner could not open the bare .md references: with --file
-        # the draft itself must arrive in Telegram as readable text,
-        # and the website channel also gets an HTML preview document.
+    def _attach_with_fake_telegraph(self, code, channel, md_path):
+        original_client = botctl.build_client_or_warn
+        original_tg = botctl.Telegraph
+        botctl.build_client_or_warn = lambda no_notify: self.api
+        botctl.Telegraph = FakeTelegraph
+        FakeTelegraph.instances.clear()
+        self.api.sent.clear()
+        try:
+            args = argparse.Namespace(
+                task_code=code, channel=channel, ref=md_path.name,
+                no_notify=False, file=str(md_path))
+            return botctl.cmd_attach_output_draft(self.store, args)
+        finally:
+            botctl.build_client_or_warn = original_client
+            botctl.Telegraph = original_tg
+
+    def test_attach_output_draft_with_file_publishes_link(self):
+        # The owner wants ONE tidy link per draft on the channel card:
+        # with --file the draft is published to telegra.ph and the page
+        # URL is the stored reference — no content dumped into the chat.
         task = self.create_contributor_task()
         code = task["code"]
         with tempfile.TemporaryDirectory() as tmp:
@@ -753,32 +784,24 @@ class BotTestCase(unittest.TestCase):
                 "## Tiêu đề\n**Bài viết hay về hội thảo**\n\n"
                 "Nội dung chính của bài viết nằm ở đây.",
                 encoding="utf-8")
-            original = botctl.build_client_or_warn
-            botctl.build_client_or_warn = lambda no_notify: self.api
-            self.api.sent.clear()
-            try:
-                args = argparse.Namespace(
-                    task_code=code, channel="website",
-                    ref=md_path.name, no_notify=False, file=str(md_path))
-                rc = botctl.cmd_attach_output_draft(self.store, args)
-            finally:
-                botctl.build_client_or_warn = original
+            rc = self._attach_with_fake_telegraph(code, "website", md_path)
             self.assertEqual(rc, 0)
+            outputs = {o["channel"]: o
+                       for o in self.store.list_outputs(task["code"])}
+            self.assertEqual(
+                outputs["website"]["draft_ref"],
+                "https://telegra.ph/trang-nhap-mau-10-23")
+            calls = FakeTelegraph.instances[0].calls
+            self.assertEqual(len(calls), 1)
+            body = json.dumps(calls[0]["nodes"], ensure_ascii=False)
+            self.assertIn("Bài viết hay về hội thảo", body)
+            self.assertIn("Nội dung chính của bài viết", body)
             texts = self.api.texts_to(CONTRIBUTOR)
-            self.assertTrue(any(
-                "NỘI DUNG BẢN NHÁP" in t and "Bài viết hay về hội thảo" in t
-                and "Nội dung chính của bài viết" in t for t in texts))
-            # Markdown markers were flattened for the reader.
-            self.assertFalse(any("**Bài viết" in t for t in texts))
-            docs = [d for d in self.api.documents
-                    if d["chat_id"] == CONTRIBUTOR]
-            self.assertEqual(len(docs), 1)
-            self.assertTrue(docs[0]["path"].name.endswith("-preview.html"))
-            preview = docs[0]["path"].read_text(encoding="utf-8")
-            self.assertIn("Bài viết hay về hội thảo", preview)
-            self.assertIn("<strong>", preview)
+            self.assertEqual(len(texts), 1)
+            self.assertIn("https://telegra.ph/trang-nhap-mau-10-23",
+                          texts[0])
 
-    def test_attach_facebook_draft_sends_preview_image(self):
+    def test_attach_facebook_draft_publishes_link(self):
         task = self.create_contributor_task()
         code = task["code"]
         with tempfile.TemporaryDirectory() as tmp:
@@ -787,26 +810,19 @@ class BotTestCase(unittest.TestCase):
                 "Bài đăng Facebook vui nhộn về hội thảo.\n\n"
                 "Mọi người cùng xem nhé!",
                 encoding="utf-8")
-            original = botctl.build_client_or_warn
-            botctl.build_client_or_warn = lambda no_notify: self.api
-            self.api.documents.clear()
-            try:
-                args = argparse.Namespace(
-                    task_code=code, channel="facebook",
-                    ref=md_path.name, no_notify=False, file=str(md_path))
-                rc = botctl.cmd_attach_output_draft(self.store, args)
-            finally:
-                botctl.build_client_or_warn = original
+            rc = self._attach_with_fake_telegraph(code, "facebook", md_path)
             self.assertEqual(rc, 0)
-            photos = [d for d in self.api.documents
-                      if d.get("kind") == "photo"
-                      and d["chat_id"] == CONTRIBUTOR]
-            self.assertEqual(len(photos), 1)
-            self.assertTrue(photos[0]["path"].name.endswith("-fb-preview.jpg"))
-            self.assertTrue(photos[0]["path"].exists())
-            self.assertIn("Xem trước bài Facebook", photos[0]["caption"])
+            outputs = {o["channel"]: o
+                       for o in self.store.list_outputs(task["code"])}
+            self.assertEqual(
+                outputs["facebook"]["draft_ref"],
+                "https://telegra.ph/trang-nhap-mau-10-23")
+            body = json.dumps(
+                FakeTelegraph.instances[0].calls[0]["nodes"],
+                ensure_ascii=False)
+            self.assertIn("Bài đăng Facebook vui nhộn", body)
 
-    def test_attach_instagram_draft_sends_slide_images(self):
+    def test_attach_instagram_draft_publishes_slides_and_caption(self):
         task = self.create_contributor_task()
         code = task["code"]
         with tempfile.TemporaryDirectory() as tmp:
@@ -817,26 +833,23 @@ class BotTestCase(unittest.TestCase):
                 "- Dòng 1: Xin chào slide một\n"
                 "- Dòng 2: Dòng phụ của slide một\n\n"
                 "## Slide 2\n"
-                "- Dòng 1: Nội dung slide hai\n",
+                "- Dòng 1: Nội dung slide hai\n\n"
+                "## Caption đăng kèm\n"
+                "Caption mẫu cho bài đăng.\n"
+                "#hashtagmau #vidu\n",
                 encoding="utf-8")
-            original = botctl.build_client_or_warn
-            botctl.build_client_or_warn = lambda no_notify: self.api
-            self.api.documents.clear()
-            try:
-                args = argparse.Namespace(
-                    task_code=code, channel="instagram",
-                    ref=md_path.name, no_notify=False, file=str(md_path))
-                rc = botctl.cmd_attach_output_draft(self.store, args)
-            finally:
-                botctl.build_client_or_warn = original
+            rc = self._attach_with_fake_telegraph(code, "instagram", md_path)
             self.assertEqual(rc, 0)
-            photos = [d for d in self.api.documents
-                      if d.get("kind") == "photo"
-                      and d["chat_id"] == CONTRIBUTOR]
-            self.assertEqual(len(photos), 2)
-            names = sorted(p["path"].name for p in photos)
-            self.assertTrue(names[0].endswith("-ig-slide1.jpg"))
-            self.assertTrue(names[1].endswith("-ig-slide2.jpg"))
+            body = json.dumps(
+                FakeTelegraph.instances[0].calls[0]["nodes"],
+                ensure_ascii=False)
+            self.assertIn("Slide 1", body)
+            self.assertIn("Xin chào slide một", body)
+            self.assertIn("Slide 2", body)
+            self.assertIn("Nội dung slide hai", body)
+            self.assertIn("Caption đăng kèm", body)
+            self.assertIn("Caption mẫu cho bài đăng.", body)
+            self.assertIn("#hashtagmau", body)
 
     # --------------------------------------- new: botctl + migration cover
     def test_botctl_task_dict_includes_destinations(self):
