@@ -96,7 +96,7 @@ HELP_TEXT = (
     "tin nhắn văn bản để chốt tạo việc.\n"
     "Trên thẻ việc: bấm ✏️ Chỉnh sửa gợi ý để sửa gợi ý; ở mục 🎯 "
     "Chọn kênh đăng bài, chạm từng kênh để chọn (✅) hoặc bỏ chọn (❌) "
-    "rồi bấm 'Chốt! Gửi cho Muse' để gửi lệnh viết bài; bấm 🗑 Thu "
+    "rồi bấm 'Chốt! Gửi Muse' để gửi lệnh viết bài; bấm 🗑 Thu "
     "hồi việc để hủy việc chưa đăng."
 )
 
@@ -618,7 +618,7 @@ class BotApp:
             rows.append([_btn("📋 Thẻ các kênh", f"task_outputs:{code}")])
         bottom = []
         if can_toggle:
-            bottom.append(_btn("🚀 Chốt! Gửi cho Muse",
+            bottom.append(_btn("🚀 Chốt! Gửi Muse",
                                f"task_dest_ok:{code}"))
         if status in (STATUS_DRAFT, STATUS_PENDING, STATUS_REJECTED) and (
             is_creator or is_admin
@@ -1071,7 +1071,7 @@ class BotApp:
             rows.append([_btn("✅ Chọn tất cả", "wiz_dest_all")])
         rows.append([_btn("✏️ Sửa nội dung gợi ý", "wiz_hint")])
         rows.append([
-            _btn("🚀 Chốt! Gửi cho Muse", "wiz_create"),
+            _btn("🚀 Chốt! Gửi Muse", "wiz_create"),
             _btn("🗑 Huỷ", "wiz_cancel"),
         ])
         return _keyboard(rows)
@@ -1087,7 +1087,7 @@ class BotApp:
         self._send(
             chat_id,
             "Bước 3/3: Chọn nơi đăng cho việc này, rồi bấm "
-            "🚀 Chốt! Gửi cho Muse.\n" + hint_line
+            "🚀 Chốt! Gửi Muse.\n" + hint_line
             + "\n📌 Mặc định đang chọn cả 3 nơi đăng — chạm vào "
               "từng kênh để bỏ chọn nếu không cần.",
             reply_markup=self._wizard_channels_keyboard(payload),
@@ -1318,7 +1318,7 @@ class BotApp:
             self._answer(
                 callback_id,
                 "Chạm vào từng kênh để chọn (✅) hoặc bỏ chọn (❌), "
-                "xong bấm nút 'Chốt! Gửi cho Muse' ở dưới.")
+                "xong bấm nút 'Chốt! Gửi Muse' ở dưới.")
         elif data.startswith("task_dest:"):
             _prefix, code, dest = data.split(":", 2)
             self._task_dest(callback_id, user, chat_id, code, dest)
@@ -1698,8 +1698,8 @@ class BotApp:
         self.store.set_user_state(
             user["telegram_id"], "task_dest_pending",
             {"code": code, "chosen": chosen})
-        self._answer(callback_id, note + " — bấm 'Chốt! Gửi cho "
-                                   "Muse' để chốt.")
+        self._answer(callback_id, note + " — bấm 'Chốt! Gửi Muse' "
+                                   "để chốt.")
 
     def _task_dest_all(self, callback_id, user, chat_id, code):
         task = self._check_dest_change(callback_id, user, code)
@@ -1715,7 +1715,7 @@ class BotApp:
             user["telegram_id"], "task_dest_pending",
             {"code": code, "chosen": list(DESTINATION_KEYS)})
         self._answer(callback_id, "Đã chọn tất cả (chưa chốt) — bấm "
-                                  "'Chốt! Gửi cho Muse' để chốt.")
+                                  "'Chốt! Gửi Muse' để chốt.")
 
     def _task_dest_ok(self, callback_id, user, chat_id, code):
         """Commit the staged channel selection and send the work order

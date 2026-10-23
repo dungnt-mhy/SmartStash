@@ -454,7 +454,7 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(state["payload"]["chosen"],
                          ["website", "instagram"])
         # The tapped card was edited in place: ❌ Facebook, ✅ Website;
-        # the bottom row is [Chốt! Gửi cho Muse, Thu hồi việc].
+        # the bottom row is [Chốt! Gửi Muse, Thu hồi việc].
         edit = self.api.edits[-1]
         rows = edit["reply_markup"]["inline_keyboard"]
         labels = [b["text"] for row in rows for b in row]
@@ -462,7 +462,7 @@ class BotTestCase(unittest.TestCase):
         self.assertIn("✅ Website", labels)
         self.assertEqual(
             [b["text"] for b in rows[-1]],
-            ["🚀 Chốt! Gửi cho Muse", "🗑 Thu hồi việc"])
+            ["🚀 Chốt! Gửi Muse", "🗑 Thu hồi việc"])
         # OK commits and notifies that the order went to Muse.
         self.api.sent.clear()
         self.app.handle_update(

@@ -20,9 +20,14 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Rút gọn tên nút chốt: "Chốt! Gửi Muse"
+- **Hạng mục:** Trải nghiệm người dùng
+- **Thay đổi:** Theo yêu cầu của chủ dự án, nút chốt bỏ chữ "cho": **"🚀 Chốt! Gửi Muse"** — áp dụng ở Bước 3 wizard, thẻ việc và mọi câu chữ dẫn chiếu tới nút.
+- **Trạng thái:** Đã xong. Kiểm thử 91/91 đạt, bot đã khởi động lại.
+
 ### 2026-10-23 — Bước 3 wizard: thêm ghi chú mặc định + đổi icon nút chốt thành 🚀
 - **Hạng mục:** Trải nghiệm người dùng
-- **Thay đổi:** Theo góp ý của chủ dự án khi test: tin Bước 3/3 thêm dòng ghi chú "📌 Mặc định đang chọn cả 3 nơi đăng — chạm vào từng kênh để bỏ chọn nếu không cần."; nút chốt đổi icon ✅ → **🚀** ("🚀 Chốt! Gửi cho Muse") ở cả Bước 3 wizard lẫn thẻ việc, để phân biệt với dấu ✅ "đã chọn" trên các nút kênh.
+- **Thay đổi:** Theo góp ý của chủ dự án khi test: tin Bước 3/3 thêm dòng ghi chú "📌 Mặc định đang chọn cả 3 nơi đăng — chạm vào từng kênh để bỏ chọn nếu không cần."; nút chốt đổi icon ✅ → **🚀** ("🚀 Chốt! Gửi Muse") ở cả Bước 3 wizard lẫn thẻ việc, để phân biệt với dấu ✅ "đã chọn" trên các nút kênh.
 - **Trạng thái:** Đã xong. Kiểm thử 91/91 đạt, bot đã khởi động lại. (Cùng buổi: máy chủ bị thay mới làm mất đăng ký dịch vụ systemd — đã cài lại unit + EnvironmentFile từ bản mẫu trong repo, dữ liệu bot nguyên vẹn, bot chạy lại từ 11:42.)
 
 ### 2026-10-23 — Sửa lỗi nút "Huỷ giao việc" bấm không ăn (bàn phím cũ sau khi đổi tên nút)
@@ -44,7 +49,7 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 - **Hạng mục:** Trải nghiệm người dùng + đường giao bản nháp
 - **Thay đổi:** Ba điều chỉnh theo chỉ đạo trực tiếp của chủ dự án trong buổi test sau reset:
   1. **Định dạng thẻ:** thẻ việc và thẻ kênh viết lại theo quy tắc "mỗi dòng đúng 1 icon, gộp trường liên quan vào cùng dòng" — bỏ các dòng nhãn trơ ("Loại đầu ra:", "Việc gốc:", "Người tạo:", "Thời gian tạo:"), thay bằng các dòng 🗂 mã việc · loại, 👤 người tạo · thời gian, 💡 gợi ý, 📄 bản nháp.
-  2. **Wizard Bước 3 = bản chốt hoàn chỉnh:** hiện dòng gợi ý hiện tại kèm nút **"✏️ Sửa nội dung gợi ý"** (gõ lại gợi ý ngay tại Bước 3); nút kết thúc đổi tên thành **"✅ Chốt! Gửi cho Muse"** và hoạt động đúng như nút chốt trên thẻ việc (tạo việc + ghi nhận đã chốt + thẻ việc đóng băng + đúng 1 tin thông báo); nút Huỷ dùng icon thùng rác 🗑 ở cả nút inline lẫn bàn phím wizard. Sửa thêm lỗi định tuyến: tin nhắn chữ ở trạng thái wizard_channels trước đây không tới được bộ xử lý wizard.
+  2. **Wizard Bước 3 = bản chốt hoàn chỉnh:** hiện dòng gợi ý hiện tại kèm nút **"✏️ Sửa nội dung gợi ý"** (gõ lại gợi ý ngay tại Bước 3); nút kết thúc đổi tên thành **"✅ Chốt! Gửi Muse"** và hoạt động đúng như nút chốt trên thẻ việc (tạo việc + ghi nhận đã chốt + thẻ việc đóng băng + đúng 1 tin thông báo); nút Huỷ dùng icon thùng rác 🗑 ở cả nút inline lẫn bàn phím wizard. Sửa thêm lỗi định tuyến: tin nhắn chữ ở trạng thái wizard_channels trước đây không tới được bộ xử lý wizard.
   3. **Trang nháp telegra.ph:** sửa lỗi tiêu đề trang Instagram lấy nhầm dòng phụ đề ("Phụ đề nhỏ…") — nay luôn lấy câu chữ trên ảnh bìa của slide 1; **nhúng ảnh tư liệu vào trang thành mặc định** (chủ dự án chỉ đạo rõ "nên thêm ảnh vào" sau đợt test CV-0004; còn cờ `--no-images` để ngoại lệ). Đã gắn lại cả 6 đầu ra của CV-0001/CV-0002 kèm ảnh và kiểm chứng trực tiếp trên telegra.ph (có figure ảnh + tiêu đề đúng).
 - **Trạng thái:** Đã xong. Kiểm thử 88/88 đạt, bot đã khởi động lại.
 
@@ -63,9 +68,9 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 - **Thay đổi:** Chủ dự án chê danh sách trạng thái nối dài bằng dấu phẩy khó đọc ("CV-0002 · Website, CV-0002 · Facebook, …"). Nay `_cmd_claude_status` trình bày **theo từng việc**: mỗi việc một khối "▸ MÃ VIỆC — gợi ý" và dòng kênh nằm dưới ("Website • Facebook • Instagram"); các mục (chờ viết nháp / đã có nháp / chờ duyệt) cách nhau bằng vạch "────────────". Đã kiểm chứng trên dữ liệu test thật của chủ dự án (CV-0001, CV-0002 sau reset).
 - **Trạng thái:** Đã xong. Kiểm thử 85/85 đạt, bot đã khởi động lại.
 
-### 2026-10-23 — Tinh chỉnh nút chốt: hoán vị trí, đổi tên "Chốt! Gửi cho Muse", chỉ 1 tin thông báo sau khi chốt
+### 2026-10-23 — Tinh chỉnh nút chốt: hoán vị trí, đổi tên "Chốt! Gửi Muse", chỉ 1 tin thông báo sau khi chốt
 - **Hạng mục:** Trải nghiệm người dùng
-- **Thay đổi:** Theo yêu cầu trực tiếp của chủ dự án: hàng nút dưới cùng của thẻ việc đổi thứ tự thành **[✅ Chốt! Gửi cho Muse] [🗑 Thu hồi việc]** (nút chốt đứng trước, tên đúng nguyên văn chủ dự án đặt). Sau khi bấm chốt, bot **chỉ gửi đúng 1 tin thông báo** ("Đã chốt kênh đăng bài… Đã gửi đến Muse. Đợi Muse làm xong…") rồi im lặng chờ — **không gửi kèm loạt thẻ kênh** như bản trước nữa; thẻ kênh sẽ đến sau, cùng bản nháp khi Muse làm xong. Thẻ việc vẫn đóng băng tại chỗ như đã chốt ở mục trước.
+- **Thay đổi:** Theo yêu cầu trực tiếp của chủ dự án: hàng nút dưới cùng của thẻ việc đổi thứ tự thành **[✅ Chốt! Gửi Muse] [🗑 Thu hồi việc]** (nút chốt đứng trước, tên đúng nguyên văn chủ dự án đặt). Sau khi bấm chốt, bot **chỉ gửi đúng 1 tin thông báo** ("Đã chốt kênh đăng bài… Đã gửi đến Muse. Đợi Muse làm xong…") rồi im lặng chờ — **không gửi kèm loạt thẻ kênh** như bản trước nữa; thẻ kênh sẽ đến sau, cùng bản nháp khi Muse làm xong. Thẻ việc vẫn đóng băng tại chỗ như đã chốt ở mục trước.
 - **Trạng thái:** Đã xong. Kiểm thử 85/85 đạt (bổ sung kiểm chứng thứ tự 2 nút ở hàng cuối và việc không có thẻ kênh nào được gửi kèm sau khi chốt). Bot đã khởi động lại.
 
 ### 2026-10-23 — Thẻ việc đổi sang mô hình chốt bằng OK: chọn kênh theo giai đoạn, đóng băng thẻ, nút trạng thái "Muse đang làm"
