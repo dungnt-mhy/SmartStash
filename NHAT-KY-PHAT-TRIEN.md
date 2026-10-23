@@ -20,6 +20,12 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 
 ## Nhật ký
 
+### 2026-10-23 — Thêm nút "Chọn tất cả" khi chọn nơi đăng
+- **Hạng mục:** Tính năng
+- **Thay đổi:** Ở cả hai chỗ chọn kênh (Bước 3 của wizard và hàng nút chọn nơi đăng trên thẻ việc) thêm nút ✅ Chọn tất cả — chỉ hiện khi đang có ít nhất một kênh chưa chọn; bấm một cái là chọn đủ Website + Facebook + Instagram và các thẻ kênh được đồng bộ lại.
+- **Lý do:** Yêu cầu trực tiếp của chủ dự án khi dùng thử.
+- **Trạng thái:** Đã xong, kiểm thử 74/74 đạt, bot đã chạy bản mới. (Cùng lúc, chủ dự án chỉ ra lỗi luồng "bấm Gửi duyệt ở thẻ gốc khi chưa có bài viết" — đang chờ chủ dự án chốt cách sửa: chuyển duyệt bài xuống thẻ kênh, hay khóa nút Gửi duyệt cho đến khi có nháp.)
+
 ### 2026-10-23 — Sửa trải nghiệm wizard Bước 1: nút Xong luôn ở dưới tay
 - **Hạng mục:** Tính năng / Trải nghiệm người dùng
 - **Thay đổi:** Người dùng phản ánh ở Bước 1 (gửi ảnh/slide) phải kéo lên tìm nút ✅ Xong trên tin nhắn hướng dẫn cũ, rất phiền. Đã sửa 3 lớp: (1) trong lúc chạy wizard, bàn phím dưới khung chat tạm đổi thành nút ✅ Xong / ❌ Huỷ luôn ghim ở dưới, tạo việc xong hoặc huỷ thì bàn phím chính tự quay lại; (2) mỗi tin nhắn xác nhận "Đã nhận file" đều gắn kèm nút ✅ Xong và ❌ Huỷ ngay dưới tin mới nhất; (3) gõ chữ "xong" cũng chuyển sang Bước 2 được.

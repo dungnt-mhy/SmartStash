@@ -584,6 +584,8 @@ class BotApp:
                 )
                 for key, label in DESTINATIONS
             ])
+            if len(chosen) < len(DESTINATIONS):
+                rows.append([_btn("✅ Chọn tất cả", f"task_dest_all:{code}")])
         if status in (STATUS_DRAFT, STATUS_PENDING, STATUS_REJECTED) and (
             is_creator or is_admin
         ):
@@ -927,11 +929,29 @@ class BotApp:
             )
             for key, label in DESTINATIONS
         ]]
+        if len(chosen) < len(DESTINATIONS):
+            rows.append([_btn("✅ Chọn tất cả", "wiz_dest_all")])
         rows.append([
             _btn("✅ Tạo việc", "wiz_create"),
             _btn("❌ Huỷ", "wiz_cancel"),
         ])
         return _keyboard(rows)
+
+    def _cb_wizard_dest_all(self, callback_id, user, chat_id, message):
+        state = self._wizard_state(user)
+        if state is None or state["state"] != "wizard_channels":
+            self._answer(callback_id, "Phiên giao việc đã kết thúc.",
+                         show_alert=True)
+            return
+        payload = state["payload"]
+        payload["destinations"] = list(DESTINATION_KEYS)
+        self.store.set_user_state(
+            user["telegram_id"], "wizard_channels", payload)
+        self._answer(callback_id, "Đã chọn tất cả nơi đăng.")
+        self._edit_markup(
+            chat_id, (message or {}).get("message_id"),
+            self._wizard_channels_keyboard(payload),
+        )
 
     def _wizard_state(self, user):
         if user is None:
@@ -1096,6 +1116,8 @@ class BotApp:
         elif data.startswith("wiz_dest:"):
             self._cb_wizard_dest(callback_id, user, chat_id,
                                  data.split(":", 1)[1], message)
+        elif data == "wiz_dest_all":
+            self._cb_wizard_dest_all(callback_id, user, chat_id, message)
         elif data == "wiz_create":
             self._cb_wizard_create(callback_id, user, chat_id)
         elif data == "wiz_cancel":
@@ -1110,6 +1132,9 @@ class BotApp:
             except ValueError:
                 output_id = None
             self._cb_output(callback_id, user, chat_id, action, output_id)
+        elif data.startswith("task_dest_all:"):
+            self._task_dest_all(callback_id, user, chat_id,
+                                data.split(":", 1)[1])
         elif data.startswith("task_dest:"):
             _prefix, code, dest = data.split(":", 2)
             self._task_dest(callback_id, user, chat_id, code, dest)
@@ -1127,7 +1152,7 @@ class BotApp:
         so the tapped card can be refreshed in place afterwards."""
         try:
             if data.startswith("task_"):
-                code = data.split(":", 2)[1] if data.startswith("task_dest:") \
+                code = data.split(":", 2)[1] if data.startswith("task_dest") \
                     else data.split(":", 1)[1]
                 task = self.store.get_task(code)
                 if task is not None:
@@ -1550,6 +1575,38 @@ class BotApp:
         self._answer(callback_id, "Đã cập nhật nơi đăng.")
         self._send(chat_id, self.task_card_text(updated),
                    reply_markup=self.task_keyboard(updated, user))
+
+    def _task_dest_all(self, callback_id, user, chat_id, code):
+        task = self.store.get_task(code)
+        if task is None:
+            self._answer(callback_id, "Không tìm thấy việc này.", show_alert=True)
+            return
+        if user is None or user["role"] is None:
+            self._answer(callback_id, "⛔ Bạn chưa được cấp quyền.",
+                         show_alert=True)
+            return
+        if task["status"] in (STATUS_PUBLISHED, STATUS_RETRACTED, STATUS_CANCELLED):
+            self._answer(callback_id,
+                         "Việc đã đóng, không đổi được nơi đăng nữa.",
+                         show_alert=True)
+            return
+        if not _can_toggle_destinations(user, task):
+            self._answer(callback_id,
+                         "⛔ Bạn không có quyền đổi nơi đăng của việc này.",
+                         show_alert=True)
+            return
+        if len(task_destinations(task)) >= len(DESTINATION_KEYS):
+            self._answer(callback_id, "Đã chọn tất cả nơi đăng rồi.")
+            return
+        chosen = list(DESTINATION_KEYS)
+        self.store.set_task_destinations(code, chosen)
+        self.store.audit(user["telegram_id"], "set_destinations", "task",
+                         code, detail=json.dumps(chosen, ensure_ascii=False))
+        updated = self.store.get_task(code)
+        self.store.sync_outputs_for_task(updated)
+        self._answer(callback_id, "Đã chọn tất cả nơi đăng.")
+        # The tapped card itself is refreshed in place by
+        # _refresh_tapped_card; no fresh card is sent here.
 
     # ------------------------------------------------------------ edit flow
     def _task_edit_start(self, callback_id, user, chat_id, task):

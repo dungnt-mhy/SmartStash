@@ -882,6 +882,51 @@ class Phase1TestCase(BotTestCase):
         labels = self.keyboard_labels_of(CONTRIBUTOR)
         self.assertIn("📋 Việc của tôi", labels)
 
+    def test_select_all_destinations_wizard_and_card(self):
+        # Wizard: turn one channel off, then "Chọn tất cả" restores it.
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="📝 Giao việc mới"))
+        self.app.handle_update(message_update(CONTRIBUTOR, photo=PHOTO))
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_done_files"))
+        self.app.handle_update(
+            message_update(CONTRIBUTOR, text="Gợi ý chọn kênh"))
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, "wiz_dest:instagram"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(
+            state["payload"]["destinations"], ["website", "facebook"])
+        # The "Chọn tất cả" button appears on the in-place edited
+        # channel-picker keyboard once a channel is off.
+        edited = self.api.edits[-1]["reply_markup"] or {}
+        edited_data = [
+            b["callback_data"]
+            for row in edited.get("inline_keyboard", []) for b in row
+        ]
+        self.assertIn("wiz_dest_all", edited_data)
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_dest_all"))
+        state = self.store.get_user_state(CONTRIBUTOR)
+        self.assertEqual(
+            state["payload"]["destinations"],
+            ["website", "facebook", "instagram"])
+        self.app.handle_update(callback_update(CONTRIBUTOR, "wiz_create"))
+        task = self.store.list_tasks()[0]
+        # Task card: remove a channel via toggle, then select all again.
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest:{task['code']}:facebook"))
+        task = self.store.get_task(task["code"])
+        self.assertEqual(
+            json.loads(task["destinations"]), ["website", "instagram"])
+        self.assertIn(
+            f"task_dest_all:{task['code']}", self.api.all_callback_data())
+        self.app.handle_update(
+            callback_update(CONTRIBUTOR, f"task_dest_all:{task['code']}"))
+        task = self.store.get_task(task["code"])
+        self.assertEqual(
+            json.loads(task["destinations"]),
+            ["website", "facebook", "instagram"])
+        channels = [o["channel"] for o in self.store.list_outputs(task["code"])]
+        self.assertEqual(sorted(channels), ["facebook", "instagram", "website"])
+
     def test_choduyet_and_thongke_for_reviewers_only(self):
         task = self.create_contributor_task()
         self.app.handle_update(
