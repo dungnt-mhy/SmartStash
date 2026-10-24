@@ -2089,6 +2089,126 @@ class BotTestCase(unittest.TestCase):
         self.assertIn("https://fb.example/p1", web_rows[0]["body"])
         self.assertIn("Fanpage Minhy", web_rows[1]["body"])
 
+    def test_botctl_publish_sends_web_push(self):
+        # TD-0017: botctl publish/failed/retract send a Web Push with
+        # the inbox title/body + deep-link, alongside the inbox row.
+        task, fb = self._fb_waiting()
+        code = task["code"]
+        self.store.set_output_fb_request(
+            fb["id"], ["profile", "page_61595515900524"])
+        calls = []
+        original_sender = botctl._WEB_PUSH_SENDER
+        original_client = botctl.build_client_or_warn
+        botctl._WEB_PUSH_SENDER = lambda t, b, u: calls.append((t, b, u))
+        botctl.build_client_or_warn = lambda nn: self.api
+        try:
+            # Partial publish -> push #1 (partial title + deep-link).
+            self.assertEqual(botctl.cmd_set_output_published(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    public_url="https://fb.example/p1", place="profile",
+                    no_notify=False)), 0)
+            # Failed place -> push #2.
+            self.assertEqual(botctl.cmd_set_output_place_failed(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    place="page_61595515900524", reason="demo",
+                    no_notify=False)), 0)
+            # Finish the last place -> push #3 (full published title).
+            self.assertEqual(botctl.cmd_set_output_published(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    public_url="https://fb.example/p2",
+                    place="page_61595515900524",
+                    no_notify=False)), 0)
+            # Retract one place (partial retract) -> push #4.
+            self.assertEqual(botctl.cmd_set_output_retracted(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    place="profile", no_notify=False)), 0)
+        finally:
+            botctl._WEB_PUSH_SENDER = original_sender
+            botctl.build_client_or_warn = original_client
+        self.assertEqual(len(calls), 4)
+        self.assertIn("⏳ Đã đăng Facebook", calls[0][0])
+        self.assertIn("https://fb.example/p1", calls[0][1])
+        self.assertEqual(calls[0][2], f"/?task={code}")
+        self.assertIn("chưa xong hết", calls[1][0])
+        self.assertEqual(calls[1][2], f"/?task={code}")
+        self.assertEqual(calls[2][0], "✅ Đã đăng thành công")
+        self.assertIn("https://fb.example/p2", calls[2][1])
+        self.assertIn("Đã xoá 1 nơi", calls[3][0])
+        self.assertEqual(calls[3][2], f"/?task={code}")
+        # --no-notify skips push exactly like the inbox row.
+        calls.clear()
+        botctl._WEB_PUSH_SENDER = lambda t, b, u: calls.append((t, b, u))
+        botctl.build_client_or_warn = lambda nn: self.api
+        try:
+            task2 = self.store.create_task(
+                ADMIN, roles.ROLE_ADMIN, "Việc thứ hai", [],
+                ["website", "facebook"])
+            self.store.sync_outputs_for_task(task2)
+            fb2 = self.store.get_output_by_channel(task2["code"], "facebook")
+            self.store.set_output_draft(fb2["id"], "https://example.com/d2")
+            self.store.set_output_status(fb2["id"], "APPROVED_WAITING")
+            self.store.set_output_fb_request(fb2["id"], ["profile"])
+            self.assertEqual(botctl.cmd_set_output_published(
+                self.store, argparse.Namespace(
+                    task_code=task2["code"], channel="facebook",
+                    public_url="https://fb.example/p9", place="profile",
+                    no_notify=True)), 0)
+        finally:
+            botctl._WEB_PUSH_SENDER = original_sender
+            botctl.build_client_or_warn = original_client
+        self.assertEqual(calls, [])
+
+    def test_botctl_push_failure_does_not_break_command(self):
+        # TD-0017: a failing push sender must not break the command
+        # or the inbox row (errors degrade to a stderr warning).
+        task, fb = self._fb_waiting()
+        code = task["code"]
+        self.store.set_output_fb_request(fb["id"], ["profile"])
+
+        def boom(title, body, url):
+            raise RuntimeError("push endpoint down")
+
+        original_sender = botctl._WEB_PUSH_SENDER
+        original_client = botctl.build_client_or_warn
+        botctl._WEB_PUSH_SENDER = boom
+        botctl.build_client_or_warn = lambda nn: self.api
+        try:
+            self.assertEqual(botctl.cmd_set_output_published(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    public_url="https://fb.example/p1", place="profile",
+                    no_notify=False)), 0)
+        finally:
+            botctl._WEB_PUSH_SENDER = original_sender
+            botctl.build_client_or_warn = original_client
+        rows = self.store._conn.execute(
+            "SELECT key FROM web_notification_items"
+            " WHERE kind = 'published'").fetchall()
+        self.assertEqual(len(rows), 1)
+
+    def test_botctl_push_real_path_skips_without_vapid(self):
+        # TD-0017: with the real sender path and no vapid.json next
+        # to this temp database, the command still succeeds and only
+        # warns — it must never auto-create VAPID keys.
+        task, fb = self._fb_waiting()
+        code = task["code"]
+        self.store.set_output_fb_request(fb["id"], ["profile"])
+        original_client = botctl.build_client_or_warn
+        botctl.build_client_or_warn = lambda nn: self.api
+        try:
+            self.assertEqual(botctl.cmd_set_output_published(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    public_url="https://fb.example/p1", place="profile",
+                    no_notify=False)), 0)
+        finally:
+            botctl.build_client_or_warn = original_client
+        self.assertIsNone(botctl._WEB_PUSH_SENDER)
+
 
 class Phase1TestCase(BotTestCase):
     """Phase 1: role menus, main keyboard, creation wizard, edit-in-place."""
