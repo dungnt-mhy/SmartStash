@@ -771,6 +771,10 @@ class Store:
         for place in self.fb_places():
             if place["key"] == key:
                 return place["label"]
+        if key == "legacy":
+            # TD-0015: display-only key for old posts whose place
+            # is unknown (see fb_state); never a pickable place.
+            return "Facebook"
         if key == FB_PROFILE_KEY:
             return FB_PROFILE_LABEL
         if isinstance(key, str) and key.startswith("page_"):
@@ -781,6 +785,8 @@ class Store:
         for place in self.fb_places():
             if place["key"] == key:
                 return place["short"]
+        if key == "legacy":
+            return "Facebook"
         if key == FB_PROFILE_KEY:
             return FB_PROFILE_SHORT
         if isinstance(key, str) and key.startswith("page_"):
@@ -808,7 +814,8 @@ class Store:
                 request = [key]
         if not target_set:
             target_set = list(request)
-        if not urls and output["status"] == STATUS_PUBLISHED \
+        if not urls and output["status"] in (STATUS_PUBLISHED,
+                                             STATUS_RETRACTED) \
                 and output["public_url"]:
             if target_set:
                 urls = {target_set[0]: output["public_url"]}
@@ -816,6 +823,24 @@ class Store:
                 key = fb_legacy_to_key(legacy)
                 if key:
                     urls = {key: output["public_url"]}
+        if not urls and output["status"] in (STATUS_PUBLISHED,
+                                             STATUS_RETRACTED) \
+                and output["public_url"]:
+            # TD-0015: old posts published before the place columns
+            # existed (publish_target NULL, e.g. CV-0012/0013/0014)
+            # still carry their place in the publish_requested
+            # audit detail. Only PUBLISHED/RETRACTED rows derive
+            # from audit here, so pickers (APPROVED_WAITING only)
+            # are unaffected.
+            key = self._latest_publish_request_place(output["id"])
+            if key:
+                urls = {key: output["public_url"]}
+                if not target_set:
+                    target_set = [key]
+            else:
+                urls = {"legacy": output["public_url"]}
+                if not target_set:
+                    target_set = ["legacy"]
         done = [k for k in target_set if k in urls]
         for k in urls:
             if k not in done:
@@ -832,6 +857,90 @@ class Store:
             "remaining": remaining,
             "all_set_done": bool(target_set) and not remaining,
         }
+
+    def _latest_publish_request_place(self, output_id):
+        """Newest publish_requested audit's place for one output.
+
+        Parses the audit detail the publish flows write: the
+        TD-0013 `targets=a,b` list (first known key wins — a legacy
+        single-link output has exactly one link) or the older
+        `target=profile` / `target=page` value. Returns None when
+        the audit trail has no usable place."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT detail FROM audit_log WHERE target_type = 'output'"
+                " AND target_id = ? AND action = 'publish_requested'"
+                " ORDER BY id DESC LIMIT 1",
+                (str(output_id),)).fetchone()
+        if not row or not row["detail"]:
+            return None
+        tokens = row["detail"].split()
+        valid = set(self.fb_place_keys())
+        for token in tokens:
+            if token.startswith("targets="):
+                for key in token[len("targets="):].split(","):
+                    if key in valid:
+                        return key
+        for token in tokens:
+            if token.startswith("target="):
+                return fb_legacy_to_key(token[len("target="):])
+        return None
+
+    def fb_locked_places(self, output):
+        """Places the pickers must show locked for one output.
+
+        locked = done ∪ (live request − done − failed). A schedule
+        still waiting for its time is NOT a live publish request,
+        so its places stay editable (rescheduling must keep
+        working); only a request with no schedule left (publish
+        confirmed, or a fired schedule) locks its not-yet-done,
+        not-failed places. Failed places are never locked, so a
+        retry stays possible. Returns (locked, pending) where
+        pending = locked − done."""
+        state = self.fb_state(output)
+        done = list(state["done"])
+        if _fb_col(output, "scheduled_at"):
+            return done, []
+        done_set = set(done)
+        failed_set = set(state["failed"])
+        pending = [k for k in state["request"]
+                   if k not in done_set and k not in failed_set]
+        locked = list(dict.fromkeys(done + pending))
+        return locked, pending
+
+    def clear_fb_request(self, output_id):
+        """Drop a recorded publish request set (abort): the frozen
+        target set and any published links are kept, so a later
+        publish starts from a clean request and an aborted request
+        can never lock places forever."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE outputs SET publish_targets = NULL,"
+                " updated_at = ? WHERE id = ?",
+                (utcnow_iso(), output_id),
+            )
+
+    def add_web_notification_item(self, key, kind, title, body):
+        """Insert a global web inbox row (the GĐ3 table, same
+        bot.db): shown to every web user, like the daily summary.
+        Returns True when a new row was inserted (False on a
+        duplicate key). The table is created if missing so bot-side
+        writers never depend on the webapp migration having run."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                """CREATE TABLE IF NOT EXISTS web_notification_items (
+                    key        TEXT PRIMARY KEY,
+                    kind       TEXT NOT NULL,
+                    title      TEXT NOT NULL,
+                    body       TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )""")
+            cursor = self._conn.execute(
+                "INSERT OR IGNORE INTO web_notification_items"
+                " (key, kind, title, body, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (key, kind, title, body, utcnow_iso()))
+        return cursor.rowcount > 0
 
     def validate_fb_targets(self, targets):
         """Keep only known place keys, deduped in order. Returns []

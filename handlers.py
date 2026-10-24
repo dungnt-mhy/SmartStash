@@ -2832,12 +2832,15 @@ class BotApp:
             "Chạm để chọn (✅) hoặc bỏ chọn (❌) từng nơi, xong bấm "
             "nút xác nhận bên dưới.")
 
-    def _fb_choice_keyboard(self, output, kind, selected, done):
+    def _fb_choice_keyboard(self, output, kind, selected, done,
+                            pending=()):
         """Toggle keyboard: done places show as published and cannot
-        be re-picked; selected show ✅, the rest ❌ (the
-        channel-picker convention). The confirm row doubles as the
-        empty-selection hint — tapping it with nothing selected just
-        alerts, so ≥1 place is always required."""
+        be re-picked; TD-0015 pending places (a live publish request
+        for a place neither done nor failed) show as waiting and
+        cannot be re-picked either; selected show ✅, the rest ❌
+        (the channel-picker convention). The confirm row doubles as
+        the empty-selection hint — tapping it with nothing selected
+        just alerts, so ≥1 place is always required."""
         tog = (f"out_pubtog:{output['id']}" if kind == "pub"
                else f"out_schtog:{output['id']}")
         confirm = (f"out_pubconfirm:{output['id']}" if kind == "pub"
@@ -2849,6 +2852,9 @@ class BotApp:
             key = place["key"]
             if key in done:
                 rows.append([_btn(f"✅ {place['short']} · đã đăng",
+                                  f"{tog}:{key}")])
+            elif key in pending:
+                rows.append([_btn(f"⏳ {place['short']} · đang chờ đăng",
                                   f"{tog}:{key}")])
             elif key in selected:
                 rows.append([_btn(f"✅ {place['short']}",
@@ -2868,19 +2874,20 @@ class BotApp:
 
     def _fb_open_choice(self, callback_id, chat_id, output, task, user,
                         kind):
-        """Open the multi-place picker: every not-yet-published place
-        starts selected (the owner's norm is posting to both), done
-        places are shown but locked. The card's own buttons hide
-        while the choice is open."""
+        """Open the multi-place picker: every unlocked place starts
+        selected (the owner's norm is posting to both), done and
+        live-request places are shown but locked. The card's own
+        buttons hide while the choice is open."""
         state = self.store.fb_state(output)
+        locked, pending = self.store.fb_locked_places(output)
         available = [k for k in self.store.fb_place_keys()
-                     if k not in state["done"]]
+                     if k not in locked]
         self.store.set_output_fb_pending(output["id"], available)
         self._set_output_pending_choice(chat_id, output, user, True)
         self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
         self._send(chat_id, self._fb_choice_text(task, kind),
                    reply_markup=self._fb_choice_keyboard(
-                       output, kind, available, state["done"]))
+                       output, kind, available, state["done"], pending))
 
     def _fb_toggle(self, callback_id, user, chat_id, output, task, kind,
                    place, message_id):
@@ -2893,16 +2900,36 @@ class BotApp:
             self._answer(callback_id, "Thao tác không hợp lệ.")
             return
         state = self.store.fb_state(output)
-        if place in state["done"]:
-            self._answer(callback_id,
-                         "Nơi này đã đăng xong, không đăng lại.")
-            return
+        locked, pending = self.store.fb_locked_places(output)
         places = self.store.fb_place_keys()
         if place not in places:
             self._answer(callback_id, "Nơi đăng không hợp lệ.")
             return
-        available = [k for k in places if k not in state["done"]]
-        selected = self.store.fb_pending_selection(output, available)
+        if place in state["done"] or place in pending:
+            # Locked since the picker opened (published, or a
+            # request recorded elsewhere meanwhile): alert and
+            # re-render the picker with the locked place filtered
+            # out, so the buttons never show a stale selection.
+            if place in state["done"]:
+                msg = "Nơi này đã đăng xong, không đăng lại."
+            else:
+                msg = ("Nơi này đang chờ đăng — Muse đang đăng, "
+                       "không chọn lại được.")
+            available = [k for k in places if k not in locked]
+            selected = [k for k in
+                        self.store.fb_pending_selection(output, available)
+                        if k in available]
+            self.store.set_output_fb_pending(output["id"], selected)
+            self._answer(callback_id, msg)
+            self._edit_card(
+                chat_id, message_id, self._fb_choice_text(task, kind),
+                reply_markup=self._fb_choice_keyboard(
+                    output, kind, selected, state["done"], pending))
+            return
+        available = [k for k in places if k not in locked]
+        selected = [k for k in
+                    self.store.fb_pending_selection(output, available)
+                    if k in available]
         if place in selected:
             selected.remove(place)
         else:
@@ -2913,7 +2940,7 @@ class BotApp:
         self._edit_card(
             chat_id, message_id, self._fb_choice_text(task, kind),
             reply_markup=self._fb_choice_keyboard(
-                output, kind, selected, state["done"]))
+                output, kind, selected, state["done"], pending))
 
     def _fb_confirm_publish(self, callback_id, user, chat_id, output,
                             task, message_id):
@@ -2926,9 +2953,31 @@ class BotApp:
             self._answer(callback_id, "Thao tác không hợp lệ.")
             return
         state = self.store.fb_state(output)
+        locked, pending = self.store.fb_locked_places(output)
         available = [k for k in self.store.fb_place_keys()
-                     if k not in state["done"]]
-        selected = self.store.fb_pending_selection(output, available)
+                     if k not in locked]
+        raw_selected = self.store.fb_pending_selection(output, available)
+        locked_in_sel = [k for k in raw_selected if k in locked]
+        if locked_in_sel:
+            # A place locked after the picker opened (e.g. a request
+            # recorded from the webapp meanwhile): refuse, name the
+            # locked places, and re-render without them — never
+            # record a duplicate request.
+            names = ", ".join(self.store.fb_place_short(k)
+                              for k in locked_in_sel)
+            self._answer(
+                callback_id,
+                f"Không đăng lại được {names}: nơi này đã đăng xong "
+                "hoặc đang chờ Muse đăng.",
+                show_alert=True)
+            selected = [k for k in raw_selected if k not in locked]
+            self.store.set_output_fb_pending(output["id"], selected)
+            self._edit_card(
+                chat_id, message_id, self._fb_choice_text(task, "pub"),
+                reply_markup=self._fb_choice_keyboard(
+                    output, "pub", selected, state["done"], pending))
+            return
+        selected = [k for k in raw_selected if k in available]
         if not selected:
             self._answer(
                 callback_id, "Hãy chọn ít nhất 1 nơi đăng để xác nhận.",
@@ -2965,9 +3014,27 @@ class BotApp:
             self._answer(callback_id, "Thao tác không hợp lệ.")
             return
         state = self.store.fb_state(output)
+        locked, pending = self.store.fb_locked_places(output)
         available = [k for k in self.store.fb_place_keys()
-                     if k not in state["done"]]
-        selected = self.store.fb_pending_selection(output, available)
+                     if k not in locked]
+        raw_selected = self.store.fb_pending_selection(output, available)
+        locked_in_sel = [k for k in raw_selected if k in locked]
+        if locked_in_sel:
+            names = ", ".join(self.store.fb_place_short(k)
+                              for k in locked_in_sel)
+            self._answer(
+                callback_id,
+                f"Không đặt lịch lại được {names}: nơi này đã đăng "
+                "xong hoặc đang chờ Muse đăng.",
+                show_alert=True)
+            selected = [k for k in raw_selected if k not in locked]
+            self.store.set_output_fb_pending(output["id"], selected)
+            self._edit_card(
+                chat_id, message_id, self._fb_choice_text(task, "sch"),
+                reply_markup=self._fb_choice_keyboard(
+                    output, "sch", selected, state["done"], pending))
+            return
+        selected = [k for k in raw_selected if k in available]
         if not selected:
             self._answer(
                 callback_id, "Hãy chọn ít nhất 1 nơi đăng để xác nhận.",
@@ -3023,10 +3090,11 @@ class BotApp:
 
     def _output_publish_abort(self, callback_id, user, chat_id,
                               output, task, message_id):
-        """Backing out at the target-choice step: nothing was
-        recorded yet, so aborting just retires the choice message —
-        the output stays APPROVED_WAITING and the card keeps its
-        Đăng button for later."""
+        """Backing out of a publish: the choice message retires and
+        any recorded request is dropped (TD-0015: an aborted request
+        must not keep its places locked forever) — the output stays
+        APPROVED_WAITING and the card keeps its Đăng button for
+        later. Published links and the frozen target set are kept."""
         if not roles.can_publish(user):
             self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
                          show_alert=True)
@@ -3039,6 +3107,7 @@ class BotApp:
                          "output", output["id"],
                          detail=f"task={task['code']} channel=facebook "
                                 "stage=target_choice")
+        self.store.clear_fb_request(output["id"])
         self.store.set_output_fb_pending(output["id"], None)
         self._set_output_pending_choice(chat_id, output, user, False)
         self._answer(callback_id, "Đã hủy lệnh đăng.")

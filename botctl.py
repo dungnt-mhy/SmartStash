@@ -111,6 +111,24 @@ def _notify_output(store, client, task, output, user_rows, prefix=""):
                   f"{row['telegram_id']}: {exc}", file=sys.stderr)
 
 
+def _notify_web(store, no_notify, kind, title, body, key):
+    """Mirror a botctl publish/retract event into the web inbox.
+
+    TD-0015: the web_notification_items table is global (every web
+    user sees the row, like the daily summary), so one row reaches
+    the task creator, reviewers and Admins at once. --no-notify
+    skips the web row exactly like it skips Telegram; a missing
+    Telegram token does NOT skip the web row (the web needs no
+    Telegram token)."""
+    if no_notify:
+        return
+    try:
+        store.add_web_notification_item(key, kind, title, body)
+    except Exception as exc:
+        print(f"Cảnh báo: không ghi được thông báo web: {exc}",
+              file=sys.stderr)
+
+
 def _strip_draft_scaffolding(md: str) -> str:
     """Drop the leading meta block ("# Bản nháp ..." header + the rule
     under it) that Muse's draft files carry, leaving the content the
@@ -662,6 +680,10 @@ def cmd_set_output_published(store, args) -> int:
                    f"place={place} public_url={args.public_url} "
                    f"done={','.join(fresh_state['done'])} "
                    f"remaining={','.join(fresh_state['remaining'])}")
+        aid = store.latest_audit_id(output["id"], "set_output_published")
+        done_links = "\n".join(
+            f"{store.fb_place_short(k)}: {fresh_state['urls'][k]}"
+            for k in fresh_state["done"] if k in fresh_state["urls"])
         client = build_client_or_warn(args.no_notify)
         if not all_done:
             # Partial: buttons stay hidden (pending_choice is still
@@ -678,6 +700,13 @@ def cmd_set_output_published(store, args) -> int:
                 prefix=f"⏳ Đã đăng Facebook ({len(fresh_state['done'])}"
                        f"/{len(fresh_state['target_set'])} nơi): "
                        f"{done_s} — còn {rem_s} chưa xong:")
+            _notify_web(
+                store, args.no_notify, "published",
+                f"⏳ Đã đăng Facebook ({len(fresh_state['done'])}"
+                f"/{len(fresh_state['target_set'])} nơi)",
+                f"{args.task_code} · kênh facebook: đã đăng {done_s}"
+                f" — còn {rem_s} chưa xong:\n{done_links}",
+                f"published:{output['id']}:{aid}")
             print(f"Đã đăng {place} ({len(fresh_state['done'])}"
                   f"/{len(fresh_state['target_set'])} nơi); "
                   f"còn: {', '.join(fresh_state['remaining'])}.")
@@ -693,6 +722,11 @@ def cmd_set_output_published(store, args) -> int:
                        _recipients_for_published(store, task),
                        prefix=f"✅ Đã đăng thành công — thẻ kênh "
                               f"{label} của việc {args.task_code}:")
+        _notify_web(
+            store, args.no_notify, "published",
+            "✅ Đã đăng thành công",
+            f"{args.task_code} · kênh facebook:\n{done_links}",
+            f"published:{output['id']}:{aid}")
         print(f"Đã đánh dấu đầu ra {args.channel} của {args.task_code} "
               f"là PUBLISHED ({len(fresh_state['done'])} nơi).")
         return 0
@@ -701,6 +735,12 @@ def cmd_set_output_published(store, args) -> int:
     store.audit(None, "set_output_published", "output", output["id"],
                 detail=f"task={args.task_code} channel={args.channel} "
                        f"public_url={args.public_url}")
+    aid = store.latest_audit_id(output["id"], "set_output_published")
+    _notify_web(store, args.no_notify, "published",
+                "✅ Đã đăng thành công",
+                f"{args.task_code} · kênh {args.channel}: "
+                f"{args.public_url}",
+                f"published:{output['id']}:{aid}")
     store.sync_task_status_from_outputs(args.task_code)
     client = build_client_or_warn(args.no_notify)
     output = store.get_output(output["id"])
@@ -748,6 +788,7 @@ def cmd_set_output_place_failed(store, args) -> int:
         detail=f"task={args.task_code} channel=facebook "
                f"place={args.place}"
                + (f" reason={args.reason}" if args.reason else ""))
+    aid = store.latest_audit_id(output["id"], "fb_place_failed")
     fresh = store.get_output(output["id"])
     state = store.fb_state(fresh)
     done_s = ", ".join(store.fb_place_short(k)
@@ -763,6 +804,16 @@ def cmd_set_output_place_failed(store, args) -> int:
         prefix="⚠️ Đăng Facebook chưa xong hết — đã đăng: "
                f"{done_s}; lỗi: {failed_s}; còn lại: {rem_s}. "
                "Đăng lại chỉ đăng các nơi chưa xong:")
+    done_links = "\n".join(
+        f"{store.fb_place_short(k)}: {state['urls'][k]}"
+        for k in state["done"] if k in state["urls"])
+    _notify_web(
+        store, args.no_notify, "publish_failed",
+        "⚠️ Đăng Facebook chưa xong hết",
+        f"{args.task_code} · kênh facebook: đã đăng {done_s}; "
+        f"lỗi: {failed_s}; còn lại: {rem_s}"
+        + (f":\n{done_links}" if done_links else ""),
+        f"publish_failed:{output['id']}:{aid}")
     print(f"Đã ghi nhận lỗi ở {args.place}; còn lại: "
           f"{', '.join(state['remaining'])}.")
     return 0
@@ -815,6 +866,16 @@ def cmd_set_output_retracted(store, args) -> int:
                        f"place={place} "
                        f"remaining={','.join(remaining)}")
             if not all_retracted:
+                aid = store.latest_audit_id(output["id"],
+                                            "retract_output_place")
+                rem_s = ", ".join(store.fb_place_short(k)
+                                  for k in remaining) or "không còn"
+                _notify_web(
+                    store, args.no_notify, "retracted",
+                    "↩️ Đã xoá 1 nơi trên Facebook",
+                    f"{args.task_code} · kênh facebook: đã xoá "
+                    f"{store.fb_place_short(place)}; còn lại: {rem_s}.",
+                    f"retracted:{output['id']}:{aid}")
                 print(f"Đã ghi nhận xoá ở {place}; còn lại: "
                       f"{', '.join(remaining)}. Chưa lật RETRACTED.")
                 return 0
@@ -834,6 +895,11 @@ def cmd_set_output_retracted(store, args) -> int:
                    prefix=f"↩️ Đã thu hồi — bài đã được xoá thật trên "
                           f"Facebook, thẻ kênh {label} của việc "
                           f"{args.task_code}:")
+    aid = store.latest_audit_id(output["id"], "retract_output")
+    _notify_web(store, args.no_notify, "retracted",
+                "↩️ Đã thu hồi — bài đã được xoá thật trên Facebook",
+                f"{args.task_code} · kênh {label}",
+                f"retracted:{output['id']}:{aid}")
     print(f"Đã đánh dấu đầu ra {args.channel} của {args.task_code} "
           "là RETRACTED (đã xoá bài thật)")
     return 0

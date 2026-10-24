@@ -1928,6 +1928,168 @@ class BotTestCase(unittest.TestCase):
                             for t in self.api.texts_to(ADMIN)))
 
 
+    # -------------------------------------------------- TD-0015: lock
+    # pending places, legacy links from audit, web notifications
+
+    def test_fb_locked_places_live_failed_scheduled(self):
+        _task, fb = self._fb_waiting()
+        # Live request locks both places as pending.
+        self.store.set_output_fb_request(
+            fb["id"], ["profile", "page_61595515900524"])
+        locked, pending = self.store.fb_locked_places(
+            self.store.get_output(fb["id"]))
+        self.assertEqual(locked, ["profile", "page_61595515900524"])
+        self.assertEqual(pending, ["profile", "page_61595515900524"])
+        # A failed place drops out of the lock so it can be retried.
+        self.store.mark_fb_place_failed(
+            fb["id"], "page_61595515900524")
+        locked, pending = self.store.fb_locked_places(
+            self.store.get_output(fb["id"]))
+        self.assertEqual(locked, ["profile"])
+        self.assertEqual(pending, ["profile"])
+        # A schedule still waiting for its time locks nothing: the
+        # places stay editable so rescheduling keeps working.
+        # (Built store-directly: _fb_waiting asserts a single task.)
+        task2 = self.store.create_task(
+            ADMIN, roles.ROLE_ADMIN, "Việc thứ hai", [],
+            ["website", "facebook"])
+        self.store.sync_outputs_for_task(task2)
+        fb2 = self.store.get_output_by_channel(task2["code"], "facebook")
+        self.store.set_output_draft(fb2["id"], "https://example.com/d2")
+        self.store.set_output_status(fb2["id"], "APPROVED_WAITING")
+        self.store.set_output_schedule(
+            fb2["id"], "2030-01-01T00:00:00+00:00",
+            targets=["profile", "page_61595515900524"])
+        locked2, pending2 = self.store.fb_locked_places(
+            self.store.get_output(fb2["id"]))
+        self.assertEqual(locked2, [])
+        self.assertEqual(pending2, [])
+
+    def test_fb_picker_refuses_pending_and_abort_clears(self):
+        _task, fb = self._fb_waiting()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{fb['id']}"))
+        # A request recorded elsewhere (e.g. the webapp) while the
+        # picker is open: both places are now pending-locked.
+        self.store.set_output_fb_request(
+            fb["id"], ["profile", "page_61595515900524"])
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubtog:{fb['id']}:profile"))
+        self.assertTrue(any("đang chờ đăng" in (a.get("text") or "")
+                            for a in self.api.answered))
+        btns = [t for _d, t in self._choice_buttons(
+            {"reply_markup": self.api.edits[-1]["reply_markup"]})]
+        self.assertIn("⏳ Trang cá nhân · đang chờ đăng", btns)
+        # A stale selection still holding a locked place: confirm
+        # refuses and records nothing (no duplicate request).
+        self.store.set_output_fb_pending(fb["id"], ["profile"])
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubconfirm:{fb['id']}"))
+        self.assertTrue(any("Không đăng lại được" in (a.get("text") or "")
+                            for a in self.api.answered))
+        self.assertEqual(self.store.audit_entries("publish_requested"),
+                         [])
+        # Abort drops the recorded request, unlocking the places.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubabort:{fb['id']}"))
+        out = self.store.get_output(fb["id"])
+        self.assertIsNone(out["publish_targets"])
+        locked, _pending = self.store.fb_locked_places(out)
+        self.assertEqual(locked, [])
+
+    def test_fb_state_legacy_from_audit_and_generic(self):
+        _task, fb = self._fb_waiting()
+        # Old post: public_url set, no target columns, audit says
+        # target=profile (the CV-0012/0013/0014 shape).
+        self.store.set_output_public_url(fb["id"], "https://fb.example/o")
+        self.store.audit(None, "publish_requested", "output", fb["id"],
+                         detail="task=X channel=facebook target=profile")
+        st = self.store.fb_state(self.store.get_output(fb["id"]))
+        self.assertEqual(st["urls"], {"profile": "https://fb.example/o"})
+        self.assertEqual(st["done"], ["profile"])
+        # No usable audit target: generic "Facebook" display key,
+        # which is never a pickable place.
+        task2 = self.store.create_task(
+            ADMIN, roles.ROLE_ADMIN, "Việc thứ hai", [],
+            ["website", "facebook"])
+        self.store.sync_outputs_for_task(task2)
+        fb2 = self.store.get_output_by_channel(task2["code"], "facebook")
+        self.store.set_output_public_url(fb2["id"],
+                                         "https://fb.example/o2")
+        st2 = self.store.fb_state(self.store.get_output(fb2["id"]))
+        self.assertEqual(st2["urls"], {"legacy": "https://fb.example/o2"})
+        self.assertEqual(self.store.fb_place_short("legacy"), "Facebook")
+        self.assertEqual(self.store.validate_fb_targets(["legacy"]), [])
+
+    def test_botctl_publish_writes_web_notifications(self):
+        task, fb = self._fb_waiting()
+        code = task["code"]
+        self.store.set_output_fb_request(
+            fb["id"], ["profile", "page_61595515900524"])
+
+        def rows():
+            # The writer creates the table on first write; a
+            # no-notify run must simply find nothing, not crash.
+            self.store._conn.execute(
+                "CREATE TABLE IF NOT EXISTS web_notification_items ("
+                " key TEXT PRIMARY KEY, kind TEXT NOT NULL,"
+                " title TEXT NOT NULL, body TEXT NOT NULL,"
+                " created_at TEXT NOT NULL)")
+            return self.store._conn.execute(
+                "SELECT key, kind, title, body FROM"
+                " web_notification_items ORDER BY rowid").fetchall()
+
+        def pub(place, url, no_notify=False):
+            original = botctl.build_client_or_warn
+            botctl.build_client_or_warn = lambda nn: self.api
+            try:
+                return botctl.cmd_set_output_published(
+                    self.store, argparse.Namespace(
+                        task_code=code, channel="facebook",
+                        public_url=url, place=place,
+                        no_notify=no_notify))
+            finally:
+                botctl.build_client_or_warn = original
+
+        # --no-notify skips the web row exactly like Telegram.
+        self.assertEqual(pub("profile", "https://fb.example/n1",
+                             no_notify=True), 0)
+        self.assertEqual(rows(), [])
+        # Fresh output: publish profile (partial) writes a web row
+        # carrying the place link; fail page writes a failed row.
+        task2 = self.store.create_task(
+            ADMIN, roles.ROLE_ADMIN, "Việc thứ hai", [],
+            ["website", "facebook"])
+        self.store.sync_outputs_for_task(task2)
+        fb2 = self.store.get_output_by_channel(task2["code"], "facebook")
+        self.store.set_output_draft(fb2["id"], "https://example.com/d2")
+        self.store.set_output_status(fb2["id"], "APPROVED_WAITING")
+        code2 = task2["code"]
+        self.store.set_output_fb_request(
+            fb2["id"], ["profile", "page_61595515900524"])
+        pub2 = lambda place, url: botctl.cmd_set_output_published(
+            self.store, argparse.Namespace(
+                task_code=code2, channel="facebook", public_url=url,
+                place=place, no_notify=False))
+        original = botctl.build_client_or_warn
+        botctl.build_client_or_warn = lambda nn: self.api
+        try:
+            self.assertEqual(pub2("profile", "https://fb.example/p1"), 0)
+            self.assertEqual(
+                botctl.cmd_set_output_place_failed(
+                    self.store, argparse.Namespace(
+                        task_code=code2, channel="facebook",
+                        place="page_61595515900524", reason="demo",
+                        no_notify=False)), 0)
+        finally:
+            botctl.build_client_or_warn = original
+        web_rows = rows()
+        self.assertEqual([r["kind"] for r in web_rows],
+                         ["published", "publish_failed"])
+        self.assertIn("https://fb.example/p1", web_rows[0]["body"])
+        self.assertIn("Fanpage Minhy", web_rows[1]["body"])
+
+
 class Phase1TestCase(BotTestCase):
     """Phase 1: role menus, main keyboard, creation wizard, edit-in-place."""
 
