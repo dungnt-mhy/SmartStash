@@ -630,6 +630,72 @@ def cmd_set_output_published(store, args) -> int:
     task, output = _get_task_and_output(store, args.task_code, args.channel)
     if output is None:
         return 1
+    place = getattr(args, "place", None)
+    if place is not None:
+        # TD-0013: per-place Facebook completion. The output flips
+        # to PUBLISHED only when every place in its target set is
+        # done; a partial run stays APPROVED_WAITING with the done
+        # places' links kept, and a retry covers only the rest.
+        if output["channel"] != "facebook":
+            print("Lỗi: --place chỉ dùng cho kênh facebook.",
+                  file=sys.stderr)
+            return 1
+        if output["status"] != "APPROVED_WAITING":
+            print("Lỗi: thẻ kênh không ở trạng thái chờ đăng.",
+                  file=sys.stderr)
+            return 1
+        valid = store.fb_place_keys()
+        if place not in valid:
+            print(f"Lỗi: nơi đăng không hợp lệ: {place} "
+                  f"(biết: {', '.join(valid)}).", file=sys.stderr)
+            return 1
+        state = store.fb_state(output)
+        if place in state["done"]:
+            print(f"Lỗi: nơi {place} đã đăng xong rồi, không đăng "
+                  "trùng.", file=sys.stderr)
+            return 1
+        all_done, fresh_state = store.mark_fb_place_done(
+            output["id"], place, args.public_url)
+        store.audit(
+            None, "set_output_published", "output", output["id"],
+            detail=f"task={args.task_code} channel={args.channel} "
+                   f"place={place} public_url={args.public_url} "
+                   f"done={','.join(fresh_state['done'])} "
+                   f"remaining={','.join(fresh_state['remaining'])}")
+        client = build_client_or_warn(args.no_notify)
+        if not all_done:
+            # Partial: buttons stay hidden (pending_choice is still
+            # set from the choice) while Muse works through the
+            # remaining places; the card now shows the done link.
+            done_s = ", ".join(store.fb_place_short(k)
+                               for k in fresh_state["done"])
+            rem_s = ", ".join(store.fb_place_short(k)
+                              for k in fresh_state["remaining"])
+            fresh = store.get_output(output["id"])
+            _notify_output(
+                store, client, task, fresh,
+                _recipients_for_published(store, task),
+                prefix=f"⏳ Đã đăng Facebook ({len(fresh_state['done'])}"
+                       f"/{len(fresh_state['target_set'])} nơi): "
+                       f"{done_s} — còn {rem_s} chưa xong:")
+            print(f"Đã đăng {place} ({len(fresh_state['done'])}"
+                  f"/{len(fresh_state['target_set'])} nơi); "
+                  f"còn: {', '.join(fresh_state['remaining'])}.")
+            return 0
+        store.set_output_pending_choice(output["id"], False)
+        store.set_output_status(output["id"], "PUBLISHED")
+        store.sync_task_status_from_outputs(args.task_code)
+        output = store.get_output(output["id"])
+        from storage import CHANNELS
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        _notify_output(store, client, task, output,
+                       _recipients_for_published(store, task),
+                       prefix=f"✅ Đã đăng thành công — thẻ kênh "
+                              f"{label} của việc {args.task_code}:")
+        print(f"Đã đánh dấu đầu ra {args.channel} của {args.task_code} "
+              f"là PUBLISHED ({len(fresh_state['done'])} nơi).")
+        return 0
     store.set_output_pending_choice(output["id"], False)
     store.set_output_public_url(output["id"], args.public_url)
     store.audit(None, "set_output_published", "output", output["id"],
@@ -650,11 +716,69 @@ def cmd_set_output_published(store, args) -> int:
     return 0
 
 
+def cmd_set_output_place_failed(store, args) -> int:
+    """Record one Facebook place failed (TD-0013): the output stays
+    APPROVED_WAITING with the done places' links kept, and everyone
+    is told exactly which places are done, failed and remaining —
+    a retry covers only the places not done."""
+    task, output = _get_task_and_output(store, args.task_code, args.channel)
+    if output is None:
+        return 1
+    if output["channel"] != "facebook":
+        print("Lỗi: chỉ dùng cho kênh facebook.", file=sys.stderr)
+        return 1
+    if output["status"] != "APPROVED_WAITING":
+        print("Lỗi: thẻ kênh không ở trạng thái chờ đăng.",
+              file=sys.stderr)
+        return 1
+    valid = store.fb_place_keys()
+    if args.place not in valid:
+        print(f"Lỗi: nơi đăng không hợp lệ: {args.place} "
+              f"(biết: {', '.join(valid)}).", file=sys.stderr)
+        return 1
+    state = store.fb_state(output)
+    if args.place in state["done"]:
+        print(f"Lỗi: nơi {args.place} đã đăng xong rồi.",
+              file=sys.stderr)
+        return 1
+    store.mark_fb_place_failed(output["id"], args.place)
+    store.set_output_pending_choice(output["id"], False)
+    store.audit(
+        None, "fb_place_failed", "output", output["id"],
+        detail=f"task={args.task_code} channel=facebook "
+               f"place={args.place}"
+               + (f" reason={args.reason}" if args.reason else ""))
+    fresh = store.get_output(output["id"])
+    state = store.fb_state(fresh)
+    done_s = ", ".join(store.fb_place_short(k)
+                       for k in state["done"]) or "chưa có"
+    failed_s = ", ".join(store.fb_place_short(k)
+                         for k in state["failed"])
+    rem_s = ", ".join(store.fb_place_short(k)
+                      for k in state["remaining"]) or "không còn"
+    client = build_client_or_warn(args.no_notify)
+    _notify_output(
+        store, client, task, fresh,
+        _recipients_for_published(store, task),
+        prefix="⚠️ Đăng Facebook chưa xong hết — đã đăng: "
+               f"{done_s}; lỗi: {failed_s}; còn lại: {rem_s}. "
+               "Đăng lại chỉ đăng các nơi chưa xong:")
+    print(f"Đã ghi nhận lỗi ở {args.place}; còn lại: "
+          f"{', '.join(state['remaining'])}.")
+    return 0
+
+
 def cmd_set_output_retracted(store, args) -> int:
     """Complete a Facebook retract order: the post has REALLY been
     deleted in the browser, so the output may now be marked
     RETRACTED and everyone notified — one success message with the
-    updated card, mirroring set-output-published."""
+    updated card, mirroring set-output-published.
+
+    TD-0013: with --place, one place's real deletion is recorded at
+    a time and RETRACTED flips only when every published place is
+    deleted. Without --place, a multi-place output is refused (the
+    caller must delete place by place); a legacy single-link output
+    still flips immediately, as before."""
     task, output = _get_task_and_output(store, args.task_code, args.channel)
     if output is None:
         return 1
@@ -662,6 +786,38 @@ def cmd_set_output_retracted(store, args) -> int:
         print(f"Lỗi: đầu ra {args.channel} của {args.task_code} chưa ở "
               "trạng thái PUBLISHED.", file=sys.stderr)
         return 1
+    place = getattr(args, "place", None)
+    if output["channel"] == "facebook" and output["public_url"]:
+        state = store.fb_state(output)
+        done = state["done"]
+        if done:
+            if place is None:
+                if len(done) == 1:
+                    place = done[0]
+                else:
+                    print(f"Lỗi: bài đã đăng ở {len(done)} nơi; xoá "
+                          "từng nơi bằng --place <nơi> "
+                          f"(còn: {', '.join(done)}).", file=sys.stderr)
+                    return 1
+            if place not in done:
+                print(f"Lỗi: nơi {place} không nằm trong các nơi "
+                      "đã đăng.", file=sys.stderr)
+                return 1
+            if place in state["retracted"]:
+                print(f"Lỗi: nơi {place} đã xoá rồi.", file=sys.stderr)
+                return 1
+            store.set_output_pending_choice(output["id"], False)
+            all_retracted, remaining = store.mark_fb_place_retracted(
+                output["id"], place)
+            store.audit(
+                None, "retract_output_place", "output", output["id"],
+                detail=f"task={args.task_code} channel=facebook "
+                       f"place={place} "
+                       f"remaining={','.join(remaining)}")
+            if not all_retracted:
+                print(f"Đã ghi nhận xoá ở {place}; còn lại: "
+                      f"{', '.join(remaining)}. Chưa lật RETRACTED.")
+                return 0
     store.set_output_pending_choice(output["id"], False)
     store.set_output_status(output["id"], "RETRACTED")
     store.audit(None, "retract_output", "output", output["id"],
@@ -740,6 +896,21 @@ def main(argv=None) -> int:
     p_opub.add_argument("channel")
     p_opub.add_argument("public_url")
     p_opub.add_argument("--no-notify", action="store_true")
+    p_opub.add_argument(
+        "--place", default=None,
+        help="Facebook: ghi nhận riêng một nơi đăng xong (vd "
+             "profile, page_61595515900524); chỉ lật PUBLISHED khi "
+             "đủ mọi nơi trong tập hợp")
+
+    p_opfail = sub.add_parser(
+        "set-output-place-failed",
+        help="Ghi nhận một nơi đăng Facebook bị lỗi: đầu ra ở lại "
+             "chờ đăng, đăng lại chỉ đăng nơi chưa xong")
+    p_opfail.add_argument("task_code")
+    p_opfail.add_argument("channel")
+    p_opfail.add_argument("place")
+    p_opfail.add_argument("--reason", default=None)
+    p_opfail.add_argument("--no-notify", action="store_true")
 
     p_oret = sub.add_parser(
         "set-output-retracted",
@@ -748,6 +919,10 @@ def main(argv=None) -> int:
     p_oret.add_argument("task_code")
     p_oret.add_argument("channel")
     p_oret.add_argument("--no-notify", action="store_true")
+    p_oret.add_argument(
+        "--place", default=None,
+        help="Facebook nhiều nơi: ghi nhận riêng một nơi đã xoá; "
+             "chỉ lật RETRACTED khi đủ mọi nơi đã đăng")
 
     args = parser.parse_args(argv)
     store = Store(Path(args.data_dir) / "bot.db")
@@ -766,6 +941,8 @@ def main(argv=None) -> int:
             return cmd_attach_output_video(store, args)
         if args.command == "set-output-published":
             return cmd_set_output_published(store, args)
+        if args.command == "set-output-place-failed":
+            return cmd_set_output_place_failed(store, args)
         if args.command == "set-output-retracted":
             return cmd_set_output_retracted(store, args)
     finally:

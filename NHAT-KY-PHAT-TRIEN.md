@@ -279,3 +279,9 @@ Người ghi: Muse (theo yêu cầu/duyệt của chủ dự án) hoặc chủ d
 - **Thay đổi:**
 - **Lý do:**
 - **Trạng thái:**
+
+### 2026-10-24 — TD-0013: Đăng Facebook nhiều nơi cùng lúc (chia sẻ storage với Web App)
+- **Hạng mục:** storage.py (bảng facebook_pages + 6 cột JSON outputs + helpers fb_places/fb_state/mark_*), handlers.py (màn chọn nơi đăng thành nút bật/tắt + xác nhận, lịch/thu hồi theo tập hợp), botctl.py (set-output-published --place, set-output-place-failed mới, set-output-retracted --place), tests/test_bot.py.
+- **Thay đổi:** Một đầu ra Facebook đăng được cả trang cá nhân + Fanpage trong một lần bấm Đăng; thêm Fanpage sau này chỉ cần thêm dòng vào bảng facebook_pages (seed: Minhy 61595515900524). Chỉ lật PUBLISHED khi đủ mọi nơi; nơi lỗi ở lại chờ đăng, đăng lại không trùng; thu hồi xoá thật đủ mọi nơi rồi mới lật RETRACTED. Handler chọn đơn cũ (out_pubto/out_schto) vẫn giữ cho tin nhắn đang bay; target đơn cũ đọc như danh sách 1 phần tử.
+- **Lý do:** Chủ dự án yêu cầu 24/10/2026 (đăng 1 nơi thì chỉ được 1; muốn đăng cả 2 nơi, sau này nhiều fanpage).
+- **Trạng thái:** Kiểm thử bot 230/230. Chi tiết đầy đủ (kiểm thử probe, bản 0.5.0, public) xem NHAT-KY Web App mục TD-0013.

@@ -640,9 +640,21 @@ class BotTestCase(unittest.TestCase):
         data = [b["callback_data"]
                 for row in choice["reply_markup"]["inline_keyboard"]
                 for b in row]
-        self.assertIn(f"out_schto:{fb['id']}:page", data)
+        # TD-0013: toggle picker, both places pre-selected.
+        self.assertIn(f"out_schtog:{fb['id']}:profile", data)
+        self.assertIn(f"out_schtog:{fb['id']}:page_61595515900524",
+                      data)
+        self.assertIn(f"out_schconfirm:{fb['id']}", data)
+        # Narrow to the Fanpage only, then confirm and pick a time.
         self.app.handle_update(
-            callback_update(ADMIN, f"out_schto:{fb['id']}:page"))
+            callback_update(ADMIN, f"out_schtog:{fb['id']}:profile"))
+        edit = self.api.edits[-1]
+        btns = [b["text"]
+                for row in edit["reply_markup"]["inline_keyboard"]
+                for b in row]
+        self.assertIn("🕐 Đặt lịch 1 nơi", btns)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schconfirm:{fb['id']}"))
         self.app.handle_update(
             message_update(ADMIN, text=self._future_hhmm(3)))
         updated = self.store.get_output(fb["id"])
@@ -1715,6 +1727,205 @@ class BotTestCase(unittest.TestCase):
                 )
             finally:
                 store.close()
+
+
+    # -------------------------------------------------- TD-0013: Facebook
+    # multi-place publish
+
+    def _fb_waiting(self):
+        task = self.create_admin_task()
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        self.store.set_output_status(fb["id"], "APPROVED_WAITING")
+        return task, fb
+
+    def _choice_buttons(self, message):
+        return [(b["callback_data"], b["text"])
+                for row in message["reply_markup"]["inline_keyboard"]
+                for b in row]
+
+    def test_fb_multi_publish_toggle_confirm_both(self):
+        task, fb = self._fb_waiting()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{fb['id']}"))
+        choice = self.api.sent[-1]
+        data = [d for d, _t in self._choice_buttons(choice)]
+        texts = [t for _d, t in self._choice_buttons(choice)]
+        self.assertIn(f"out_pubtog:{fb['id']}:profile", data)
+        self.assertIn(f"out_pubtog:{fb['id']}:page_61595515900524",
+                      data)
+        self.assertIn(f"out_pubconfirm:{fb['id']}", data)
+        self.assertIn("🚀 Đăng lên 2 nơi", texts)
+        # Toggle profile off, then back on.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubtog:{fb['id']}:profile"))
+        btns = [t for _d, t in self._choice_buttons(
+            {"reply_markup": self.api.edits[-1]["reply_markup"]})]
+        self.assertIn("🚀 Đăng lên 1 nơi", btns)
+        self.assertIn("❌ Trang cá nhân", btns)
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubtog:{fb['id']}:profile"))
+        btns = [t for _d, t in self._choice_buttons(
+            {"reply_markup": self.api.edits[-1]["reply_markup"]})]
+        self.assertIn("🚀 Đăng lên 2 nơi", btns)
+        # Confirm: request recorded with both places.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubconfirm:{fb['id']}"))
+        reqs = self.store.audit_entries("publish_requested")
+        self.assertEqual(len(reqs), 1)
+        self.assertIn("targets=profile,page_61595515900524",
+                      reqs[0]["detail"])
+        state = self.store.fb_state(self.store.get_output(fb["id"]))
+        self.assertEqual(state["request"],
+                         ["profile", "page_61595515900524"])
+        self.assertEqual(state["target_set"],
+                         ["profile", "page_61595515900524"])
+        self.assertEqual(self.store.get_output(fb["id"])["pending_choice"],
+                         1)
+        self.assertTrue(any("Trang cá nhân, Fanpage Minhy" in (e.get("text") or "")
+                            for e in self.api.edits))
+
+    def test_fb_multi_publish_empty_selection_blocked(self):
+        _task, fb = self._fb_waiting()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_publish:{fb['id']}"))
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubtog:{fb['id']}:profile"))
+        self.app.handle_update(
+            callback_update(ADMIN,
+                            f"out_pubtog:{fb['id']}:page_61595515900524"))
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_pubconfirm:{fb['id']}"))
+        self.assertTrue(any("ít nhất 1 nơi" in (a.get("text") or "")
+                            for a in self.api.answered))
+        self.assertEqual(self.store.audit_entries("publish_requested"),
+                         [])
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "APPROVED_WAITING")
+        self.assertEqual(self.store.get_output(fb["id"])["pending_choice"],
+                         1)
+
+    def test_fb_multi_partial_retry_and_retract(self):
+        task, fb = self._fb_waiting()
+        self.store.set_output_fb_request(
+            fb["id"], ["profile", "page_61595515900524"])
+        code = task["code"]
+
+        def pub(place, url):
+            return botctl.cmd_set_output_published(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook", public_url=url,
+                    place=place, no_notify=True))
+
+        def ret(place=None):
+            return botctl.cmd_set_output_retracted(
+                self.store, argparse.Namespace(
+                    task_code=code, channel="facebook",
+                    place=place, no_notify=True))
+
+        # Place 1 done: still waiting, its link kept.
+        self.assertEqual(pub("profile", "https://fb.example/p1"), 0)
+        out = self.store.get_output(fb["id"])
+        self.assertEqual(out["status"], "APPROVED_WAITING")
+        st = self.store.fb_state(out)
+        self.assertEqual(st["urls"], {"profile": "https://fb.example/p1"})
+        # Place 2 fails: recorded, still waiting.
+        rc = botctl.cmd_set_output_place_failed(
+            self.store, argparse.Namespace(
+                task_code=code, channel="facebook",
+                place="page_61595515900524", reason="demo",
+                no_notify=True))
+        self.assertEqual(rc, 0)
+        st = self.store.fb_state(self.store.get_output(fb["id"]))
+        self.assertIn("page_61595515900524", st["failed"])
+        # Retry covers only the missing place; the set stays frozen.
+        self.store.set_output_fb_request(fb["id"],
+                                         ["page_61595515900524"])
+        st = self.store.fb_state(self.store.get_output(fb["id"]))
+        self.assertEqual(st["target_set"],
+                         ["profile", "page_61595515900524"])
+        self.assertEqual(pub("page_61595515900524",
+                             "https://fb.example/p2"), 0)
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "PUBLISHED")
+        # No duplicate publish of a done place.
+        self.assertEqual(pub("profile", "https://fb.example/p1b"), 1)
+        # Retract needs one --place per place.
+        self.assertEqual(ret(None), 1)
+        self.assertEqual(ret("profile"), 0)
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "PUBLISHED")
+        self.assertEqual(ret("page_61595515900524"), 0)
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "RETRACTED")
+
+    def test_fb_legacy_single_target_compat(self):
+        task, fb = self._fb_waiting()
+        # Legacy scheduled row: single publish_target reads as a
+        # one-place request.
+        self.store.set_output_schedule(
+            fb["id"], "2030-01-01T00:00:00+00:00", "page")
+        st = self.store.fb_state(self.store.get_output(fb["id"]))
+        self.assertEqual(st["request"], ["page_61595515900524"])
+        self.assertEqual(self.store.get_output(fb["id"])["publish_target"],
+                         "page")
+        # Legacy published row with a single link and no target
+        # columns: retract without --place still flips, as before.
+        self.app.handle_update(message_update(ADMIN, photo=PHOTO))
+        self.app.handle_update(message_update(
+            ADMIN, text="Việc admin thứ hai"))
+        tasks = [t for t in self.store.list_tasks()
+                 if t["creator_id"] == ADMIN]
+        task2 = tasks[-1]
+        fb2 = self.store.get_output_by_channel(task2["code"], "facebook")
+        self.store.set_output_public_url(fb2["id"],
+                                         "https://fb.example/old")
+        self.assertEqual(self.store.get_output(fb2["id"])["status"],
+                         "PUBLISHED")
+        rc = botctl.cmd_set_output_retracted(
+            self.store, argparse.Namespace(
+                task_code=task2["code"], channel="facebook",
+                place=None, no_notify=True))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.store.get_output(fb2["id"])["status"],
+                         "RETRACTED")
+
+    def test_fb_multi_schedule_fire_both(self):
+        from datetime import datetime, timezone
+        task, fb = self._fb_waiting()
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schedule:{fb['id']}"))
+        # Both places pre-selected: confirm straight away.
+        self.app.handle_update(
+            callback_update(ADMIN, f"out_schconfirm:{fb['id']}"))
+        self.app.handle_update(
+            message_update(ADMIN, text=self._future_hhmm(3)))
+        updated = self.store.get_output(fb["id"])
+        self.assertIsNotNone(updated["scheduled_at"])
+        self.assertEqual(updated["publish_target"], "profile")
+        st = self.store.fb_state(updated)
+        self.assertEqual(st["request"],
+                         ["profile", "page_61595515900524"])
+        # Force it due: firing records the request WITH both places,
+        # clears the schedule and notifies with both place names.
+        past = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.store.set_output_schedule(
+            fb["id"], past,
+            targets=["profile", "page_61595515900524"])
+        self.api.sent.clear()
+        self.app.fire_due_schedules()
+        updated = self.store.get_output(fb["id"])
+        self.assertIsNone(updated["scheduled_at"])
+        reqs = self.store.audit_entries("publish_requested")
+        self.assertEqual(len(reqs), 1)
+        self.assertIn("targets=profile,page_61595515900524",
+                      reqs[0]["detail"])
+        self.assertIn("scheduled=1", reqs[0]["detail"])
+        st = self.store.fb_state(updated)
+        self.assertEqual(st["request"],
+                         ["profile", "page_61595515900524"])
+        self.assertTrue(any("Trang cá nhân, Fanpage Minhy" in t
+                            for t in self.api.texts_to(ADMIN)))
 
 
 class Phase1TestCase(BotTestCase):

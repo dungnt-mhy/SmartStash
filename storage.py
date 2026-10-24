@@ -12,7 +12,15 @@ tasks        id, code (CV-0001...), creator_id, creator_role, hint,
 outputs      id, task_code, channel, status, draft_ref, public_url,
              reject_reason, created_at, updated_at -- one row per publish
              channel of a task, each with its own lifecycle and its own
-             Telegram card, reviewed/published independently
+             Telegram card, reviewed/published independently. A Facebook
+             row additionally carries a multi-place ledger (TD-0013):
+             publish_targets / fb_target_set / fb_place_urls /
+             fb_place_failed / fb_place_retracted / fb_pending_targets
+             (JSON) — one published link per place, not one link total.
+facebook_pages  one row per Fanpage that can be picked as a Facebook
+             publish place (seed: Minhy). The personal profile is a
+             fixed place, not a row. A second Fanpage is one INSERT
+             away — no code change, no admin screen yet.
 audit_log    actor_id, action, target_type, target_id, detail, created_at
 bot_meta     key/value -- long-polling offset, task sequence, ...
 intake_buffer  per (chat_id, telegram_id) photos/documents waiting for the
@@ -74,6 +82,77 @@ def channel_kind(channel: str) -> str:
     """The channel's content kind: article / post / carousel / video."""
     meta = CHANNELS.get(channel)
     return meta["kind"] if meta else ""
+
+
+#: Facebook publish places (TD-0013). A place key is "profile" for the
+#: owner's personal profile, or "page_<fb_page_id>" for a Fanpage.
+#: The profile entry is fixed; Fanpages live in the facebook_pages
+#: table so a second page is one INSERT away — no code change, no
+#: admin screen yet (adding a page = one row; see THAY-DOI TD-0013).
+FB_PROFILE_KEY = "profile"
+FB_PROFILE_LABEL = "👤 Trang cá nhân Nguyễn Trọng Minh Huy"
+FB_PROFILE_SHORT = "Trang cá nhân"
+FB_PAGE_SEED_ID = "61595515900524"
+FB_PAGE_SEED_NAME = "Minhy"
+
+
+def _fb_json_list(raw):
+    """Parse a JSON list of non-empty strings, deduped in order."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out = []
+    for item in parsed:
+        if isinstance(item, str) and item and item not in out:
+            out.append(item)
+    return out
+
+
+def _fb_json_map(raw):
+    """Parse a JSON object of string -> string (place -> url)."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {k: v for k, v in parsed.items()
+            if isinstance(k, str) and isinstance(v, str)}
+
+
+def fb_legacy_to_key(target):
+    """Old single publish_target values -> new place keys."""
+    if target == "profile":
+        return "profile"
+    if target == "page":
+        return f"page_{FB_PAGE_SEED_ID}"
+    return None
+
+
+def fb_key_to_legacy(key):
+    """New place keys -> old single publish_target values (fallback
+    for old readers; only the first place of a set is kept)."""
+    if key == "profile":
+        return "profile"
+    if isinstance(key, str) and key.startswith("page_"):
+        return "page"
+    return None
+
+
+def _fb_col(row, name, default=None):
+    """Read a possibly-missing column from a sqlite Row."""
+    try:
+        value = row[name]
+    except (IndexError, KeyError):
+        return default
+    return default if value is None else value
 
 
 def utcnow_iso() -> str:
@@ -212,6 +291,24 @@ class Store:
         if "draft_file_id" not in out_columns:
             self._conn.execute(
                 "ALTER TABLE outputs ADD COLUMN draft_file_id TEXT")
+        # TD-0013: Facebook multi-place ledger (all JSON, all
+        # additive — old rows keep working, see fb_state()).
+        for col in ("publish_targets", "fb_target_set", "fb_place_urls",
+                    "fb_place_failed", "fb_place_retracted",
+                    "fb_pending_targets"):
+            if col not in out_columns:
+                self._conn.execute(
+                    f"ALTER TABLE outputs ADD COLUMN {col} TEXT")
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS facebook_pages ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " fb_page_id TEXT NOT NULL UNIQUE,"
+            " name TEXT NOT NULL,"
+            " created_at TEXT NOT NULL)")
+        self._conn.execute(
+            "INSERT OR IGNORE INTO facebook_pages"
+            " (fb_page_id, name, created_at) VALUES (?, ?, ?)",
+            (FB_PAGE_SEED_ID, FB_PAGE_SEED_NAME, utcnow_iso()))
 
     def close(self) -> None:
         with self._lock:
@@ -593,15 +690,275 @@ class Store:
         return row["m"] if row else None
 
     def set_output_schedule(self, output_id: int, scheduled_at,
-                            publish_target=None) -> None:
+                            publish_target=None, targets=None) -> None:
         """Set (or clear, with None) an output's scheduled publish
-        time — a UTC ISO timestamp — and its chosen publish target."""
+        time — a UTC ISO timestamp — and its chosen publish target.
+
+        TD-0013: pass targets=[place keys] for a Facebook schedule
+        and the multi-place request set is stored alongside the
+        legacy single publish_target (first place). Clearing a
+        schedule (scheduled_at=None) also clears the request set,
+        but keeps the frozen target set and any published links.
+        """
+        with self._lock, self._conn:
+            if targets is None:
+                if scheduled_at is None:
+                    self._conn.execute(
+                        "UPDATE outputs SET scheduled_at = ?,"
+                        " publish_target = ?, publish_targets = NULL,"
+                        " updated_at = ? WHERE id = ?",
+                        (None, None, utcnow_iso(), output_id),
+                    )
+                else:
+                    self._conn.execute(
+                        "UPDATE outputs SET scheduled_at = ?,"
+                        " publish_target = ?, updated_at = ? WHERE id = ?",
+                        (scheduled_at, publish_target, utcnow_iso(),
+                         output_id),
+                    )
+                return
+            legacy = fb_key_to_legacy(targets[0]) if targets else None
+            row = self._conn.execute(
+                "SELECT fb_place_urls FROM outputs WHERE id = ?",
+                (output_id,)).fetchone()
+            urls = _fb_json_map(row["fb_place_urls"]) if row else {}
+            if urls:
+                self._conn.execute(
+                    "UPDATE outputs SET scheduled_at = ?,"
+                    " publish_target = ?, publish_targets = ?,"
+                    " updated_at = ? WHERE id = ?",
+                    (scheduled_at, legacy,
+                     json.dumps(targets, ensure_ascii=False),
+                     utcnow_iso(), output_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE outputs SET scheduled_at = ?,"
+                    " publish_target = ?, publish_targets = ?,"
+                    " fb_target_set = ?, updated_at = ? WHERE id = ?",
+                    (scheduled_at, legacy,
+                     json.dumps(targets, ensure_ascii=False),
+                     json.dumps(targets, ensure_ascii=False),
+                     utcnow_iso(), output_id),
+                )
+
+    # ------------------------------------------------ Facebook places
+    # (TD-0013: multi-place publish)
+
+    def list_facebook_pages(self):
+        with self._lock:
+            return self._conn.execute(
+                "SELECT fb_page_id, name FROM facebook_pages ORDER BY id"
+            ).fetchall()
+
+    def fb_places(self):
+        """Ordered selectable Facebook places: profile first, then
+        Fanpages in insertion order. The source of truth for every
+        picker (bot + webapp) — never hardcoded elsewhere."""
+        places = [{"key": FB_PROFILE_KEY, "label": FB_PROFILE_LABEL,
+                   "short": FB_PROFILE_SHORT}]
+        for row in self.list_facebook_pages():
+            key = f"page_{row['fb_page_id']}"
+            places.append({"key": key,
+                           "label": f"📄 Fanpage {row['name']}",
+                           "short": f"Fanpage {row['name']}"})
+        return places
+
+    def fb_place_keys(self):
+        return [p["key"] for p in self.fb_places()]
+
+    def fb_place_label(self, key):
+        for place in self.fb_places():
+            if place["key"] == key:
+                return place["label"]
+        if key == FB_PROFILE_KEY:
+            return FB_PROFILE_LABEL
+        if isinstance(key, str) and key.startswith("page_"):
+            return f"📄 Fanpage {key[5:]}"
+        return key
+
+    def fb_place_short(self, key):
+        for place in self.fb_places():
+            if place["key"] == key:
+                return place["short"]
+        if key == FB_PROFILE_KEY:
+            return FB_PROFILE_SHORT
+        if isinstance(key, str) and key.startswith("page_"):
+            return f"Fanpage {key[5:]}"
+        return key
+
+    def fb_state(self, output):
+        """Normalized Facebook place state for one output row.
+
+        Backward compatible: a legacy single publish_target reads as
+        a one-place request, and a legacy PUBLISHED public_url reads
+        as that one place done. Unknown keys are preserved (a page
+        row deleted later must not silently drop published links).
+        """
+        request = _fb_json_list(_fb_col(output, "publish_targets"))
+        target_set = _fb_json_list(_fb_col(output, "fb_target_set"))
+        urls = _fb_json_map(_fb_col(output, "fb_place_urls"))
+        failed = _fb_json_list(_fb_col(output, "fb_place_failed"))
+        retracted = _fb_json_list(_fb_col(output, "fb_place_retracted"))
+        pending = _fb_json_list(_fb_col(output, "fb_pending_targets"))
+        legacy = _fb_col(output, "publish_target")
+        if not request and legacy:
+            key = fb_legacy_to_key(legacy)
+            if key:
+                request = [key]
+        if not target_set:
+            target_set = list(request)
+        if not urls and output["status"] == STATUS_PUBLISHED \
+                and output["public_url"]:
+            if target_set:
+                urls = {target_set[0]: output["public_url"]}
+            elif legacy:
+                key = fb_legacy_to_key(legacy)
+                if key:
+                    urls = {key: output["public_url"]}
+        done = [k for k in target_set if k in urls]
+        for k in urls:
+            if k not in done:
+                done.append(k)
+        remaining = [k for k in target_set if k not in urls]
+        return {
+            "request": request,
+            "target_set": target_set,
+            "urls": urls,
+            "failed": failed,
+            "retracted": retracted,
+            "pending": pending,
+            "done": done,
+            "remaining": remaining,
+            "all_set_done": bool(target_set) and not remaining,
+        }
+
+    def validate_fb_targets(self, targets):
+        """Keep only known place keys, deduped in order. Returns []
+        for anything that is not a non-empty list of known keys."""
+        if not isinstance(targets, list):
+            return []
+        valid = set(self.fb_place_keys())
+        out = []
+        for item in targets:
+            if isinstance(item, str) and item in valid \
+                    and item not in out:
+                out.append(item)
+        return out
+
+    def set_output_fb_pending(self, output_id, targets):
+        """In-progress toggle selection (bot choice UI); None clears."""
         with self._lock, self._conn:
             self._conn.execute(
-                "UPDATE outputs SET scheduled_at = ?, publish_target = ?,"
+                "UPDATE outputs SET fb_pending_targets = ?,"
                 " updated_at = ? WHERE id = ?",
-                (scheduled_at, publish_target, utcnow_iso(), output_id),
+                (json.dumps(targets, ensure_ascii=False)
+                 if targets is not None else None,
+                 utcnow_iso(), output_id),
             )
+
+    def fb_pending_selection(self, output, available):
+        """Effective toggle selection: the stored pending list, or
+        all available places when the choice was never stored (a
+        choice opened before this column existed)."""
+        raw = _fb_col(output, "fb_pending_targets")
+        if raw is None:
+            return list(available)
+        return _fb_json_list(raw)
+
+    def set_output_fb_request(self, output_id, targets):
+        """Confirm a publish/schedule request set. While no place is
+        done yet the full set is (re)written; once a place is done
+        the set freezes so a retry cannot drop a published place."""
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT fb_place_urls FROM outputs WHERE id = ?",
+                (output_id,)).fetchone()
+            urls = _fb_json_map(row["fb_place_urls"]) if row else {}
+            if urls:
+                self._conn.execute(
+                    "UPDATE outputs SET publish_targets = ?,"
+                    " updated_at = ? WHERE id = ?",
+                    (json.dumps(targets, ensure_ascii=False),
+                     utcnow_iso(), output_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE outputs SET publish_targets = ?,"
+                    " fb_target_set = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(targets, ensure_ascii=False),
+                     json.dumps(targets, ensure_ascii=False),
+                     utcnow_iso(), output_id),
+                )
+
+    def mark_fb_place_done(self, output_id, place, url):
+        """Record one place published. Returns (all_set_done, state)
+        with the fresh state — the caller flips PUBLISHED only when
+        all_set_done is true."""
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT * FROM outputs WHERE id = ?", (output_id,)).fetchone()
+            state = self.fb_state(row)
+            urls = dict(state["urls"])
+            urls[place] = url
+            failed = [f for f in state["failed"] if f != place]
+            target_set = state["target_set"] or [place]
+            self._conn.execute(
+                "UPDATE outputs SET fb_place_urls = ?,"
+                " fb_place_failed = ?, fb_target_set = ?,"
+                " updated_at = ? WHERE id = ?",
+                (json.dumps(urls, ensure_ascii=False),
+                 json.dumps(failed, ensure_ascii=False),
+                 json.dumps(target_set, ensure_ascii=False),
+                 utcnow_iso(), output_id),
+            )
+            first = next((k for k in target_set if k in urls), None)
+            if first:
+                self._conn.execute(
+                    "UPDATE outputs SET public_url = ? WHERE id = ?",
+                    (urls[first], output_id),
+                )
+            fresh = self._conn.execute(
+                "SELECT * FROM outputs WHERE id = ?", (output_id,)).fetchone()
+            state = self.fb_state(fresh)
+            return state["all_set_done"], state
+
+    def mark_fb_place_failed(self, output_id, place):
+        """Record one place failed; the output stays APPROVED_WAITING
+        and a retry covers only the places not done."""
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT * FROM outputs WHERE id = ?", (output_id,)).fetchone()
+            state = self.fb_state(row)
+            failed = list(state["failed"])
+            if place not in failed:
+                failed.append(place)
+            self._conn.execute(
+                "UPDATE outputs SET fb_place_failed = ?,"
+                " updated_at = ? WHERE id = ?",
+                (json.dumps(failed, ensure_ascii=False),
+                 utcnow_iso(), output_id),
+            )
+
+    def mark_fb_place_retracted(self, output_id, place):
+        """Record one place really deleted. Returns (all_retracted,
+        remaining) — the caller flips RETRACTED only when remaining
+        is empty."""
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT * FROM outputs WHERE id = ?", (output_id,)).fetchone()
+            state = self.fb_state(row)
+            retracted = list(state["retracted"])
+            if place not in retracted:
+                retracted.append(place)
+            self._conn.execute(
+                "UPDATE outputs SET fb_place_retracted = ?,"
+                " updated_at = ? WHERE id = ?",
+                (json.dumps(retracted, ensure_ascii=False),
+                 utcnow_iso(), output_id),
+            )
+            remaining = [k for k in state["done"] if k not in retracted]
+            return (not remaining), remaining
 
     def list_due_outputs(self, now_iso: str):
         """Scheduled outputs whose time has come and that still wait

@@ -23,6 +23,8 @@ from storage import (
     STATUS_PUBLISHED,
     STATUS_REJECTED,
     STATUS_RETRACTED,
+    fb_key_to_legacy,
+    fb_legacy_to_key,
 )
 
 STATUS_LABELS = {
@@ -52,12 +54,11 @@ DESTINATION_LABELS = {key: f"{icon} {name}"
 DESTINATION_NAMES = {key: name for key, _icon, name in DESTINATIONS}
 
 
-#: Facebook publish targets, picked on the channel card in
-#: Telegram (owner's rule: never decided in the Muse).
-FB_PUBLISH_TARGETS = {
-    "profile": "👤 Trang cá nhân Nguyễn Trọng Minh Huy",
-    "page": "📄 Fanpage Minhy",
-}
+#: Facebook publish places are NOT hardcoded here (TD-0013): the
+#: picker reads them from the store (fixed profile + facebook_pages
+#: rows), so a second Fanpage is one table row away. The owner's
+#: rule still holds — the places are picked on the channel card in
+#: Telegram, never decided in the Muse.
 
 
 def _dest_btn_text(key, chosen):
@@ -2203,7 +2204,30 @@ class BotApp:
         if output["scheduled_at"]:
             lines.append(
                 f"🕐 Lịch đăng: {_format_created(output['scheduled_at'])}")
-        if output["public_url"]:
+        if output["channel"] == "facebook":
+            # TD-0013: one link per place, plus the chosen set and
+            # any failed place — never a single mystery link.
+            state = self.store.fb_state(output)
+            if state["urls"]:
+                for key in state["done"]:
+                    url = state["urls"][key]
+                    short = self.store.fb_place_short(key)
+                    if output["status"] == STATUS_RETRACTED:
+                        lines.append(f"🔗 {short} · đã xoá: {url}")
+                    elif output["status"] == STATUS_PUBLISHED:
+                        lines.append(f"🔗 {short}: {url}")
+                    else:
+                        lines.append(f"🔗 {short} · đã đăng: {url}")
+            elif state["target_set"]:
+                shorts = ", ".join(self.store.fb_place_short(k)
+                                   for k in state["target_set"])
+                lines.append(f"📘 Nơi đăng: {shorts}")
+            for key in state["failed"]:
+                if key not in state["urls"]:
+                    lines.append(
+                        f"⚠️ {self.store.fb_place_short(key)}: đăng lỗi "
+                        "— đăng lại chỉ đăng nơi chưa xong")
+        elif output["public_url"]:
             if output["status"] == STATUS_RETRACTED:
                 lines.append(f"🔗 Bài đã xoá: {output['public_url']}")
             else:
@@ -2451,6 +2475,12 @@ class BotApp:
         elif action == "out_pubto":
             self._output_publish_target(
                 callback_id, user, chat_id, output, task, extra, message_id)
+        elif action == "out_pubtog":
+            self._fb_toggle(callback_id, user, chat_id, output, task,
+                            "pub", extra, message_id)
+        elif action == "out_pubconfirm":
+            self._fb_confirm_publish(callback_id, user, chat_id, output,
+                                     task, message_id)
         elif action == "out_pubabort":
             self._output_publish_abort(
                 callback_id, user, chat_id, output, task, message_id)
@@ -2460,6 +2490,12 @@ class BotApp:
         elif action == "out_schto":
             self._output_schedule_target(
                 callback_id, user, chat_id, output, task, extra, message_id)
+        elif action == "out_schtog":
+            self._fb_toggle(callback_id, user, chat_id, output, task,
+                            "sch", extra, message_id)
+        elif action == "out_schconfirm":
+            self._fb_confirm_schedule(callback_id, user, chat_id, output,
+                                      task, message_id)
         elif action == "out_schabort":
             self._output_schedule_abort(
                 callback_id, user, chat_id, output, task, message_id)
@@ -2763,25 +2799,13 @@ class BotApp:
         label = CHANNELS.get(output["channel"], {}).get(
             "label", output["channel"])
         if output["channel"] == "facebook":
-            # The publish target is chosen HERE, in Telegram
-            # (owner's rule — never in the Muse). The request
-            # is recorded only after the pick, in
-            # _output_publish_target. While the choice is open the
+            # The publish places are chosen HERE, in Telegram
+            # (owner's rule — never in the Muse). The request is
+            # recorded only after the confirm, in
+            # _fb_confirm_publish. While the choice is open the
             # card's own buttons hide.
-            self._set_output_pending_choice(chat_id, output, user, True)
-            self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
-            self._send(
-                chat_id,
-                f"📘 Đăng bài Facebook của việc {task['code']} "
-                "lên đâu?",
-                reply_markup=_keyboard([
-                    [_btn("👤 Trang cá nhân",
-                          f"out_pubto:{output['id']}:profile")],
-                    [_btn("📄 Fanpage Minhy",
-                          f"out_pubto:{output['id']}:page")],
-                    [_btn("🗑 Hủy đăng",
-                          f"out_pubabort:{output['id']}")],
-                ]))
+            self._fb_open_choice(callback_id, chat_id, output, task,
+                                 user, "pub")
             return
         self._set_output_pending_choice(chat_id, output, user, True)
         if output["scheduled_at"]:
@@ -2798,17 +2822,181 @@ class BotApp:
                    f"{task['code']}. Muse đang đăng — link bài sẽ "
                    "được gửi ngay khi đăng xong.")
 
-    def _output_publish_target(self, callback_id, user, chat_id,
-                               output, task, target, message_id):
-        """Second half of the Facebook publish click: record the
-        request WITH its target and turn the choice message into
-        the single acknowledgement."""
+    # ------------------------------------------------ Facebook place
+    # picker (TD-0013: multi-place)
+
+    def _fb_choice_text(self, task, kind):
+        verb = "Đăng bài" if kind == "pub" else "Đặt lịch đăng bài"
+        return (
+            f"📘 {verb} Facebook của việc {task['code']} lên đâu?\n"
+            "Chạm để chọn (✅) hoặc bỏ chọn (❌) từng nơi, xong bấm "
+            "nút xác nhận bên dưới.")
+
+    def _fb_choice_keyboard(self, output, kind, selected, done):
+        """Toggle keyboard: done places show as published and cannot
+        be re-picked; selected show ✅, the rest ❌ (the
+        channel-picker convention). The confirm row doubles as the
+        empty-selection hint — tapping it with nothing selected just
+        alerts, so ≥1 place is always required."""
+        tog = (f"out_pubtog:{output['id']}" if kind == "pub"
+               else f"out_schtog:{output['id']}")
+        confirm = (f"out_pubconfirm:{output['id']}" if kind == "pub"
+                   else f"out_schconfirm:{output['id']}")
+        abort = (f"out_pubabort:{output['id']}" if kind == "pub"
+                 else f"out_schabort:{output['id']}")
+        rows = []
+        for place in self.store.fb_places():
+            key = place["key"]
+            if key in done:
+                rows.append([_btn(f"✅ {place['short']} · đã đăng",
+                                  f"{tog}:{key}")])
+            elif key in selected:
+                rows.append([_btn(f"✅ {place['short']}",
+                                  f"{tog}:{key}")])
+            else:
+                rows.append([_btn(f"❌ {place['short']}",
+                                  f"{tog}:{key}")])
+        if selected:
+            label = ("🚀 Đăng lên %d nơi" % len(selected)) \
+                if kind == "pub" else ("🕐 Đặt lịch %d nơi" % len(selected))
+            rows.append([_btn(label, confirm)])
+        else:
+            rows.append([_btn("⚠️ Chọn ít nhất 1 nơi đăng", confirm)])
+        rows.append([_btn("🗑 Hủy đăng" if kind == "pub" else "🗑 Hủy",
+                          abort)])
+        return _keyboard(rows)
+
+    def _fb_open_choice(self, callback_id, chat_id, output, task, user,
+                        kind):
+        """Open the multi-place picker: every not-yet-published place
+        starts selected (the owner's norm is posting to both), done
+        places are shown but locked. The card's own buttons hide
+        while the choice is open."""
+        state = self.store.fb_state(output)
+        available = [k for k in self.store.fb_place_keys()
+                     if k not in state["done"]]
+        self.store.set_output_fb_pending(output["id"], available)
+        self._set_output_pending_choice(chat_id, output, user, True)
+        self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
+        self._send(chat_id, self._fb_choice_text(task, kind),
+                   reply_markup=self._fb_choice_keyboard(
+                       output, kind, available, state["done"]))
+
+    def _fb_toggle(self, callback_id, user, chat_id, output, task, kind,
+                   place, message_id):
         if not roles.can_publish(user):
             self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
                          show_alert=True)
             return
         if output["channel"] != "facebook" \
-                or target not in FB_PUBLISH_TARGETS:
+                or output["status"] != STATUS_APPROVED_WAITING:
+            self._answer(callback_id, "Thao tác không hợp lệ.")
+            return
+        state = self.store.fb_state(output)
+        if place in state["done"]:
+            self._answer(callback_id,
+                         "Nơi này đã đăng xong, không đăng lại.")
+            return
+        places = self.store.fb_place_keys()
+        if place not in places:
+            self._answer(callback_id, "Nơi đăng không hợp lệ.")
+            return
+        available = [k for k in places if k not in state["done"]]
+        selected = self.store.fb_pending_selection(output, available)
+        if place in selected:
+            selected.remove(place)
+        else:
+            selected.append(place)
+        selected = [k for k in places if k in selected]
+        self.store.set_output_fb_pending(output["id"], selected)
+        self._answer(callback_id)
+        self._edit_card(
+            chat_id, message_id, self._fb_choice_text(task, kind),
+            reply_markup=self._fb_choice_keyboard(
+                output, kind, selected, state["done"]))
+
+    def _fb_confirm_publish(self, callback_id, user, chat_id, output,
+                            task, message_id):
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["channel"] != "facebook" \
+                or output["status"] != STATUS_APPROVED_WAITING:
+            self._answer(callback_id, "Thao tác không hợp lệ.")
+            return
+        state = self.store.fb_state(output)
+        available = [k for k in self.store.fb_place_keys()
+                     if k not in state["done"]]
+        selected = self.store.fb_pending_selection(output, available)
+        if not selected:
+            self._answer(
+                callback_id, "Hãy chọn ít nhất 1 nơi đăng để xác nhận.",
+                show_alert=True)
+            return
+        if output["scheduled_at"]:
+            self.store.set_output_schedule(output["id"], None, None)
+        self.store.set_output_fb_request(output["id"], selected)
+        self.store.set_output_fb_pending(output["id"], None)
+        labels = ", ".join(self.store.fb_place_short(k)
+                           for k in selected)
+        legacy = fb_key_to_legacy(selected[0])
+        self.store.audit(
+            user["telegram_id"], "publish_requested",
+            "output", output["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"targets={','.join(selected)}"
+                   + (f" target={legacy}" if legacy else ""))
+        self._answer(callback_id, f"Đã chốt đăng lên {labels}")
+        self._edit_card(
+            chat_id, message_id,
+            f"⏳ Đã nhận lệnh đăng bài Facebook của việc "
+            f"{task['code']} lên {labels}. Muse đang đăng — link "
+            "bài sẽ được gửi ngay khi đăng xong.")
+
+    def _fb_confirm_schedule(self, callback_id, user, chat_id, output,
+                             task, message_id):
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["channel"] != "facebook" \
+                or output["status"] != STATUS_APPROVED_WAITING:
+            self._answer(callback_id, "Thao tác không hợp lệ.")
+            return
+        state = self.store.fb_state(output)
+        available = [k for k in self.store.fb_place_keys()
+                     if k not in state["done"]]
+        selected = self.store.fb_pending_selection(output, available)
+        if not selected:
+            self._answer(
+                callback_id, "Hãy chọn ít nhất 1 nơi đăng để xác nhận.",
+                show_alert=True)
+            return
+        self.store.set_output_fb_pending(output["id"], None)
+        self.store.set_user_state(
+            user["telegram_id"], "await_output_schedule_time",
+            {"output_id": output["id"], "targets": selected})
+        labels = ", ".join(self.store.fb_place_short(k)
+                           for k in selected)
+        self._answer(callback_id, f"Đã chọn {labels} — chọn giờ đăng 👇")
+        self._edit_card(
+            chat_id, message_id,
+            f"📘 Đặt lịch đăng lên {labels}.")
+        self._prompt_schedule_time(chat_id, output, task)
+
+    def _output_publish_target(self, callback_id, user, chat_id,
+                               output, task, target, message_id):
+        """Legacy single-pick publish click (choice messages sent
+        before TD-0013): record the request WITH its one place and
+        turn the choice message into the single acknowledgement.
+        New choice messages use the toggle picker instead."""
+        if not roles.can_publish(user):
+            self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
+                         show_alert=True)
+            return
+        if output["channel"] != "facebook" \
+                or target not in ("profile", "page"):
             self._answer(callback_id, "Thao tác không hợp lệ.")
             return
         if output["status"] != STATUS_APPROVED_WAITING:
@@ -2818,11 +3006,14 @@ class BotApp:
             return
         if output["scheduled_at"]:
             self.store.set_output_schedule(output["id"], None, None)
+        key = fb_legacy_to_key(target)
+        self.store.set_output_fb_request(output["id"], [key])
         self.store.audit(user["telegram_id"], "publish_requested",
                          "output", output["id"],
                          detail=f"task={task['code']} "
-                                f"channel=facebook target={target}")
-        label = FB_PUBLISH_TARGETS[target]
+                                f"channel=facebook targets={key} "
+                                f"target={target}")
+        label = self.store.fb_place_label(key)
         self._answer(callback_id, f"Đã chốt đăng lên {label}")
         self._edit_card(
             chat_id, message_id,
@@ -2848,6 +3039,7 @@ class BotApp:
                          "output", output["id"],
                          detail=f"task={task['code']} channel=facebook "
                                 "stage=target_choice")
+        self.store.set_output_fb_pending(output["id"], None)
         self._set_output_pending_choice(chat_id, output, user, False)
         self._answer(callback_id, "Đã hủy lệnh đăng.")
         self._edit_card(
@@ -2890,23 +3082,11 @@ class BotApp:
                          show_alert=True)
             return
         if output["channel"] == "facebook":
-            # Same rule as publishing: the target is chosen here,
+            # Same rule as publishing: the places are chosen here,
             # in Telegram, before the time is typed. The card's
             # buttons hide while the choice is open.
-            self._set_output_pending_choice(chat_id, output, user, True)
-            self._answer(callback_id, "Chọn nơi đăng Facebook 👇")
-            self._send(
-                chat_id,
-                f"📘 Đặt lịch đăng bài Facebook của việc {task['code']} "
-                "lên đâu?",
-                reply_markup=_keyboard([
-                    [_btn("👤 Trang cá nhân",
-                          f"out_schto:{output['id']}:profile")],
-                    [_btn("📄 Fanpage Minhy",
-                          f"out_schto:{output['id']}:page")],
-                    [_btn("🗑 Hủy",
-                          f"out_schabort:{output['id']}")],
-                ]))
+            self._fb_open_choice(callback_id, chat_id, output, task,
+                                 user, "sch")
             return
         self._set_output_pending_choice(chat_id, output, user, True)
         self.store.set_user_state(
@@ -2917,19 +3097,24 @@ class BotApp:
 
     def _output_schedule_target(self, callback_id, user, chat_id,
                                 output, task, target, message_id):
+        """Legacy single-pick schedule click (choice messages sent
+        before TD-0013). New choice messages use the toggle picker
+        and confirm into _fb_confirm_schedule instead."""
         if not roles.can_publish(user):
             self._answer(callback_id, "⛔ Bạn không có quyền đăng.",
                          show_alert=True)
             return
         if output["channel"] != "facebook" \
-                or target not in FB_PUBLISH_TARGETS \
+                or target not in ("profile", "page") \
                 or output["status"] != STATUS_APPROVED_WAITING:
             self._answer(callback_id, "Thao tác không hợp lệ.")
             return
+        key = fb_legacy_to_key(target)
         self.store.set_user_state(
             user["telegram_id"], "await_output_schedule_time",
-            {"output_id": output["id"], "target": target})
-        label = FB_PUBLISH_TARGETS[target]
+            {"output_id": output["id"], "target": target,
+             "targets": [key]})
+        label = self.store.fb_place_label(key)
         self._answer(callback_id, f"Đã chọn {label} — chọn giờ đăng 👇")
         self._edit_card(
             chat_id, message_id,
@@ -2945,6 +3130,7 @@ class BotApp:
         state = self.store.get_user_state(user["telegram_id"])
         if state and state["state"] == "await_output_schedule_time":
             self.store.clear_user_state(user["telegram_id"])
+        self.store.set_output_fb_pending(output["id"], None)
         self._set_output_pending_choice(chat_id, output, user, False)
         self._answer(callback_id, "Đã hủy đặt lịch.")
         self._edit_card(
@@ -3018,17 +3204,22 @@ class BotApp:
         else:
             self._answer(callback_id, "Thao tác không hợp lệ.")
             return
-        target = (state["payload"] or {}).get("target")
+        payload = state["payload"] or {}
+        targets = payload.get("targets")
+        if not targets and payload.get("target"):
+            key = fb_legacy_to_key(payload["target"])
+            targets = [key] if key else None
         self._answer(callback_id, "Đã chọn giờ đăng.")
         self._edit_card(
             chat_id, message_id,
             "🕐 Đã chọn giờ đăng — xem tin xác nhận bên dưới.")
-        self._save_schedule(user, chat_id, output, task, target, when)
+        self._save_schedule(user, chat_id, output, task, targets, when)
 
-    def _save_schedule(self, user, chat_id, output, task, target, when):
+    def _save_schedule(self, user, chat_id, output, task, targets, when):
         """Shared tail of both time-entry paths (typed or quick
         pick): warn about posts too close together, save, confirm,
-        and land a fresh card showing the schedule."""
+        and land a fresh card showing the schedule. targets is the
+        Facebook place list (None for other channels)."""
         from datetime import datetime as _dt
         from datetime import timezone as _tz
 
@@ -3068,16 +3259,25 @@ class BotApp:
                     f"{latest_pub['task_code']}) — bài này đăng tiếp "
                     "trong vòng 1 giờ, dễ loãng tương tác.")
         self.store.set_output_pending_choice(output["id"], False)
-        self.store.set_output_schedule(output["id"], when_utc, target)
+        self.store.set_output_schedule(output["id"], when_utc,
+                                       targets=targets)
+        labels = ", ".join(self.store.fb_place_short(k)
+                           for k in targets) if targets else ""
+        detail = (f"task={task['code']} channel={output['channel']} "
+                  f"when={_format_created(when_utc)}")
+        if targets:
+            detail += f" targets={','.join(targets)}"
+            legacy = fb_key_to_legacy(targets[0])
+            if legacy:
+                detail += f" target={legacy}"
         self.store.audit(
             user["telegram_id"], "schedule_set", "output", output["id"],
-            detail=f"task={task['code']} channel={output['channel']} "
-                   f"when={_format_created(when_utc)}"
-                   + (f" target={target}" if target else ""))
+            detail=detail)
         message = (
             f"🕐 Đã đặt lịch đăng thẻ kênh {label} của việc "
             f"{task['code']} lúc {_format_created(when_utc)} "
-            "(giờ Việt Nam).")
+            "(giờ Việt Nam)"
+            + (f" lên {labels}." if labels else "."))
         for warning in warnings:
             message += "\n" + warning
         self._send(chat_id, message)
@@ -3086,7 +3286,10 @@ class BotApp:
 
     def _apply_output_schedule_time(self, user, chat_id, text, payload):
         output_id = (payload or {}).get("output_id")
-        target = (payload or {}).get("target")
+        targets = (payload or {}).get("targets")
+        if not targets and (payload or {}).get("target"):
+            key = fb_legacy_to_key((payload or {})["target"])
+            targets = [key] if key else None
         output = self.store.get_output(output_id) \
             if output_id is not None else None
         if output is None:
@@ -3102,7 +3305,7 @@ class BotApp:
                 "⏰ Chưa rõ giờ đăng. Nhắn lại theo mẫu 16:30 hoặc "
                 "24/10 16:30 (giờ Việt Nam) nhé.")
             return
-        self._save_schedule(user, chat_id, output, task, target, when)
+        self._save_schedule(user, chat_id, output, task, targets, when)
 
     def _output_unschedule(self, callback_id, user, chat_id,
                            output, task, message_id):
@@ -3138,14 +3341,25 @@ class BotApp:
         now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
         for output in self.store.list_due_outputs(now_iso):
             task = self.store.get_task(output["task_code"])
-            target = output["publish_target"]
+            state = self.store.fb_state(output)
+            targets = state["request"]
             self.store.set_output_schedule(output["id"], None, None)
+            if targets:
+                # The schedule clear above also clears the request
+                # set — restore it: this fired order covers exactly
+                # these places.
+                self.store.set_output_fb_request(output["id"], targets)
             if task is None:
                 continue
             detail = (f"task={task['code']} "
                       f"channel={output['channel']} scheduled=1")
-            if target:
-                detail += f" target={target}"
+            if targets:
+                detail += f" targets={','.join(targets)}"
+                legacy = fb_key_to_legacy(targets[0])
+                if legacy:
+                    detail += f" target={legacy}"
+            elif output["publish_target"]:
+                detail += f" target={output['publish_target']}"
             self.store.audit(None, "publish_requested", "output",
                              output["id"], detail=detail)
             label = CHANNELS.get(output["channel"], {}).get(
@@ -3159,11 +3373,15 @@ class BotApp:
                         admin["chat_id"] not in recipients:
                     recipients.append(admin["chat_id"])
             for rcpt in recipients:
-                self._send(
-                    rcpt,
-                    f"⏰ Đến lịch đăng thẻ kênh {label} của việc "
-                    f"{task['code']} — Muse đang đăng, link bài sẽ "
-                    "được gửi ngay khi đăng xong.")
+                text = (f"⏰ Đến lịch đăng thẻ kênh {label} của việc "
+                        f"{task['code']}")
+                if targets and output["channel"] == "facebook":
+                    shorts = ", ".join(
+                        self.store.fb_place_short(k) for k in targets)
+                    text += f" lên {shorts}"
+                text += (" — Muse đang đăng, link bài sẽ được gửi "
+                         "ngay khi đăng xong.")
+                self._send(rcpt, text)
 
     def _output_retract_start(self, callback_id, user, chat_id, output, task):
         if output["status"] != STATUS_PUBLISHED:
@@ -3219,20 +3437,29 @@ class BotApp:
                 self._answer(callback_id,
                              "Lệnh thu hồi đang được xử lý rồi.")
                 return
+            state = self.store.fb_state(output)
+            places = state["done"]
+            detail = (f"task={task['code']} channel=facebook "
+                      f"public_url={output['public_url']}")
+            if places:
+                detail += f" places={','.join(places)}"
             self.store.audit(
                 user["telegram_id"], "retract_requested", "output",
-                output["id"],
-                detail=f"task={task['code']} channel=facebook "
-                       f"public_url={output['public_url']}")
+                output["id"], detail=detail)
             self._answer(
                 callback_id,
                 "⏳ Đã nhận lệnh thu hồi — Muse sẽ xoá bài thật "
                 "trên Facebook.")
+            suffix = ""
+            if places:
+                shorts = ", ".join(self.store.fb_place_short(k)
+                                   for k in places)
+                suffix = f" ở {len(places)} nơi ({shorts})"
             self._edit_card(
                 chat_id, message_id,
                 f"⏳ Đã nhận lệnh thu hồi thẻ kênh Facebook của việc "
                 f"{task['code']} — Muse đang xoá bài thật trên "
-                "Facebook, xong sẽ báo lại ngay.")
+                f"Facebook{suffix}, xong sẽ báo lại ngay.")
             return
         self.store.set_output_status(output["id"], STATUS_RETRACTED)
         self.store.audit(user["telegram_id"], "retract_output", "output",
