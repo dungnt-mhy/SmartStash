@@ -239,6 +239,15 @@ CREATE TABLE IF NOT EXISTS user_state (
     payload     TEXT NOT NULL DEFAULT '{}',
     updated_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS archived_files (
+    task_code    TEXT NOT NULL,
+    filename     TEXT NOT NULL,
+    drive_file_id TEXT NOT NULL,
+    web_view_link TEXT,
+    size         INTEGER NOT NULL DEFAULT 0,
+    archived_at  TEXT NOT NULL,
+    PRIMARY KEY (task_code, filename)
+);
 """
 
 
@@ -689,6 +698,18 @@ class Store:
             ).fetchone()
         return row["m"] if row else None
 
+    def latest_audit(self, output_id: int, action: str):
+        """Newest audit row for one action on one output, or None.
+        TD-0024: the 48h-wait scan reads the created_at of the audit
+        that moved an output into its current waiting state."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM audit_log WHERE target_type = 'output'"
+                " AND target_id = ? AND action = ?"
+                " ORDER BY id DESC LIMIT 1",
+                (str(output_id), action),
+            ).fetchone()
+
     def set_output_schedule(self, output_id: int, scheduled_at,
                             publish_target=None, targets=None) -> None:
         """Set (or clear, with None) an output's scheduled publish
@@ -954,6 +975,48 @@ class Store:
                     and item not in out:
                 out.append(item)
         return out
+
+    # --------------------------------------- TD-0024: Drive archive
+    def record_archived_file(self, task_code, filename, drive_file_id,
+                             web_view_link, size) -> None:
+        """Remember one material file archived to Google Drive (its
+        local copy is deleted afterwards); the row is what the web
+        task detail renders as a Drive link instead of a broken
+        thumbnail. INSERT OR REPLACE keeps a re-run idempotent."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO archived_files"
+                " (task_code, filename, drive_file_id, web_view_link,"
+                "  size, archived_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (task_code, filename, drive_file_id, web_view_link,
+                 int(size), utcnow_iso()),
+            )
+
+    def archived_files_for_task(self, task_code):
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM archived_files WHERE task_code = ?"
+                " ORDER BY filename",
+                (task_code,),
+            ).fetchall()
+
+    def archived_file(self, task_code, filename):
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM archived_files WHERE task_code = ?"
+                " AND filename = ?",
+                (task_code, filename),
+            ).fetchone()
+
+    def delete_archived_file(self, task_code, filename) -> None:
+        """Drop one archived row (TD-0024 restore): the file is
+        local again, so the task detail renders it normally."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM archived_files WHERE task_code = ?"
+                " AND filename = ?",
+                (task_code, filename),
+            )
 
     def set_output_fb_pending(self, output_id, targets):
         """In-progress toggle selection (bot choice UI); None clears."""

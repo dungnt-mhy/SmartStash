@@ -9,15 +9,18 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import archive
 import botctl
 import roles
 import handlers
@@ -2934,6 +2937,293 @@ class MiniAppTestCase(unittest.TestCase):
     def test_miniap_in_base_commands(self):
         self.assertIn("miniap",
                       [c["command"] for c in handlers.BASE_COMMANDS])
+
+
+# ------------------------------------------------- TD-0024: Drive archive
+class ArchiveTestCase(unittest.TestCase):
+    """Archive/restore engine with a fake Drive — no network, no
+    real Drive. The fake uploader keeps the bytes in memory so the
+    fake downloader can hand back exactly what went up."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="archive-test-")
+        self.files_dir = Path(self.tmp) / "files"
+        self.files_dir.mkdir()
+        self.store = Store(":memory:")
+        self.store.register_user(ADMIN, "admin", "Admin", ADMIN)
+        self.store.set_role(ADMIN, roles.ROLE_ADMIN, can_publish=True)
+        self.config_path = Path(self.tmp) / "drive_archive.json"
+        self.config_path.write_text(json.dumps(
+            {"folder_id": "root-test", "tasks": {}}), encoding="utf-8")
+        self.drive_files = {}
+        self.uploaded = []
+        self.downloaded = []
+        self.spawned = []
+        self._old_spawn = archive.spawn_worker
+        archive.spawn_worker = self._fake_spawn
+
+    def tearDown(self):
+        archive.spawn_worker = self._old_spawn
+        self.store.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # ------------------------------------------------------------ fakes
+    def _fake_spawn(self, mode, code, reason=None):
+        self.spawned.append((mode, code, reason))
+        if mode == "archive":
+            return archive.archive_task_files(
+                self.store, self.files_dir, code, reason or "test",
+                uploader=self.fake_uploader,
+                config_path=self.config_path)
+        return archive.restore_task_files(
+            self.store, self.files_dir, code,
+            downloader=self.fake_downloader)
+
+    def fake_uploader(self, local_path, folder_id, name):
+        data = Path(local_path).read_bytes()
+        file_id = f"drive-{name}"
+        self.drive_files[file_id] = data
+        self.uploaded.append((str(local_path), folder_id, name))
+        return file_id, f"https://drive.example/{name}"
+
+    def fake_downloader(self, file_id, dest_path):
+        self.downloaded.append((file_id, str(dest_path)))
+        Path(dest_path).write_bytes(self.drive_files[file_id])
+
+    # ------------------------------------------------------------ helpers
+    def make_task_with_files(self, channels=("website", "facebook"),
+                             files=None):
+        task = self.store.create_task(
+            ADMIN, roles.ROLE_ADMIN, "Việc lưu trữ", [], list(channels))
+        self.store.sync_outputs_for_task(task)
+        code = task["code"]
+        directory = self.files_dir / code
+        directory.mkdir(parents=True)
+        for name, content in (files or {"anh.jpg": b"anh-bytes",
+                                        "video.mp4": b"video-bytes"}).items():
+            (directory / name).write_bytes(content)
+        # The per-task Drive folder is already known in tests.
+        config = json.loads(self.config_path.read_text())
+        config["tasks"][code] = "folder-test"
+        self.config_path.write_text(json.dumps(config))
+        return task
+
+    def outputs(self, code):
+        return {o["channel"]: o for o in self.store.list_outputs(code)}
+
+    def backdate_audit(self, output_id, action, hours_ago):
+        stamp = (datetime.now(timezone.utc)
+                 - timedelta(hours=hours_ago)).isoformat(timespec="seconds")
+        self.store.audit(ADMIN, action, "output", output_id, detail="")
+        audit_id = self.store.latest_audit_id(output_id, action)
+        with self.store._lock, self.store._conn:
+            self.store._conn.execute(
+                "UPDATE audit_log SET created_at = ? WHERE id = ?",
+                (stamp, audit_id))
+
+    def backdate_output_created(self, output_id, hours_ago):
+        stamp = (datetime.now(timezone.utc)
+                 - timedelta(hours=hours_ago)).isoformat(timespec="seconds")
+        with self.store._lock, self.store._conn:
+            self.store._conn.execute(
+                "UPDATE outputs SET created_at = ? WHERE id = ?",
+                (stamp, output_id))
+
+    # --------------------------------------------------------------- (b)
+    def test_archive_after_all_published(self):
+        task = self.make_task_with_files()
+        code = task["code"]
+        for output in self.store.list_outputs(code):
+            self.store.set_output_status(output["id"], "PUBLISHED")
+        self.assertTrue(archive.maybe_archive_task(
+            self.store, self.files_dir, code))
+        self.assertEqual(self.spawned, [("archive", code, "published")])
+        self.assertEqual(len(self.uploaded), 2)
+        self.assertFalse((self.files_dir / code / "anh.jpg").exists())
+        self.assertFalse((self.files_dir / code / "video.mp4").exists())
+        rows = self.store.archived_files_for_task(code)
+        self.assertEqual({r["filename"] for r in rows},
+                         {"anh.jpg", "video.mp4"})
+        self.assertTrue(all(r["drive_file_id"].startswith("drive-")
+                            for r in rows))
+        audits = [e for e in self.store.audit_entries("files_archived")
+                  if e["target_id"] == code]
+        self.assertEqual(len(audits), 1)
+        self.assertIn("reason=published", audits[0]["detail"])
+
+    def test_archive_skips_when_not_all_published(self):
+        task = self.make_task_with_files()
+        code = task["code"]
+        outs = self.outputs(code)
+        self.store.set_output_status(outs["website"]["id"], "PUBLISHED")
+        self.assertFalse(archive.maybe_archive_task(
+            self.store, self.files_dir, code))
+        self.assertEqual(self.uploaded, [])
+        self.assertTrue((self.files_dir / code / "anh.jpg").exists())
+
+    def test_archive_keeps_files_when_drive_fails(self):
+        task = self.make_task_with_files()
+        code = task["code"]
+
+        def failing_uploader(local_path, folder_id, name):
+            raise archive.ArchiveError("Drive sập")
+
+        result = archive.archive_task_files(
+            self.store, self.files_dir, code, reason="published",
+            uploader=failing_uploader, config_path=self.config_path)
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue((self.files_dir / code / "anh.jpg").exists())
+        self.assertEqual(self.store.archived_files_for_task(code), [])
+        audits = [e for e in
+                  self.store.audit_entries("files_archive_failed")
+                  if e["target_id"] == code]
+        self.assertEqual(len(audits), 1)
+
+    def test_archive_idempotent_no_reupload(self):
+        task = self.make_task_with_files()
+        code = task["code"]
+        first = archive.archive_task_files(
+            self.store, self.files_dir, code, reason="published",
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertEqual(first["status"], "done")
+        second = archive.archive_task_files(
+            self.store, self.files_dir, code, reason="published",
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertEqual(second["status"], "nothing_to_archive")
+        self.assertEqual(len(self.uploaded), 2)
+
+    # --------------------------------------------------------------- (e)
+    def test_restore_downloads_back(self):
+        task = self.make_task_with_files()
+        code = task["code"]
+        archive.archive_task_files(
+            self.store, self.files_dir, code, reason="published",
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertTrue(archive.maybe_restore_task(
+            self.store, self.files_dir, code))
+        self.assertEqual(self.spawned[-1][0], "restore")
+        self.assertEqual(
+            (self.files_dir / code / "anh.jpg").read_bytes(), b"anh-bytes")
+        self.assertEqual(
+            (self.files_dir / code / "video.mp4").read_bytes(),
+            b"video-bytes")
+        self.assertEqual(self.store.archived_files_for_task(code), [])
+        audits = [e for e in self.store.audit_entries("files_restored")
+                  if e["target_id"] == code]
+        self.assertEqual(len(audits), 1)
+
+    def test_restore_keeps_row_when_download_fails(self):
+        task = self.make_task_with_files()
+        code = task["code"]
+        archive.archive_task_files(
+            self.store, self.files_dir, code, reason="published",
+            uploader=self.fake_uploader, config_path=self.config_path)
+
+        def failing_downloader(file_id, dest_path):
+            raise archive.ArchiveError("Drive sập")
+
+        result = archive.restore_task_files(
+            self.store, self.files_dir, code,
+            downloader=failing_downloader)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(self.store.archived_files_for_task(code)), 2)
+        self.assertFalse((self.files_dir / code / "anh.jpg").exists())
+
+    # --------------------------------------------------------------- (d)
+    def test_scan_48h_eligible(self):
+        task = self.make_task_with_files(channels=("website",))
+        code = task["code"]
+        output = self.outputs(code)["website"]
+        self.store.set_output_draft(output["id"], "https://ex.test/d")
+        self.store.set_output_status(output["id"], "PENDING")
+        self.backdate_audit(output["id"], "submit_output", 49)
+        acted = archive.scan_waiting_tasks(
+            self.store, self.files_dir, spawn=False,
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertEqual(acted, [code])
+        self.assertFalse((self.files_dir / code / "anh.jpg").exists())
+
+    def test_scan_48h_not_yet(self):
+        task = self.make_task_with_files(channels=("website",))
+        code = task["code"]
+        output = self.outputs(code)["website"]
+        self.store.set_output_draft(output["id"], "https://ex.test/d")
+        self.store.set_output_status(output["id"], "PENDING")
+        self.backdate_audit(output["id"], "submit_output", 47)
+        acted = archive.scan_waiting_tasks(
+            self.store, self.files_dir, spawn=False,
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertEqual(acted, [])
+        self.assertTrue((self.files_dir / code / "anh.jpg").exists())
+
+    def test_scan_skips_live_publish_request(self):
+        task = self.make_task_with_files(channels=("website",))
+        code = task["code"]
+        output = self.outputs(code)["website"]
+        self.store.set_output_draft(output["id"], "https://ex.test/d")
+        self.store.set_output_status(output["id"], "APPROVED_WAITING")
+        self.backdate_audit(output["id"], "approve_output", 49)
+        # A live publish request (newer than any completion/abort).
+        self.store.audit(ADMIN, "publish_requested", "output",
+                         output["id"], detail="task=x channel=website")
+        self.assertTrue(archive.has_outstanding_publish_request(
+            self.store, self.store.get_output(output["id"])))
+        acted = archive.scan_waiting_tasks(
+            self.store, self.files_dir, spawn=False,
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertEqual(acted, [])
+        # Aborting the request unblocks the scan.
+        self.store.audit(ADMIN, "publish_aborted", "output",
+                         output["id"], detail="")
+        self.assertFalse(archive.has_outstanding_publish_request(
+            self.store, self.store.get_output(output["id"])))
+        acted = archive.scan_waiting_tasks(
+            self.store, self.files_dir, spawn=False,
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertEqual(acted, [code])
+
+    def test_waiting_since_falls_back_to_created_at(self):
+        task = self.make_task_with_files(channels=("website",))
+        code = task["code"]
+        output = self.outputs(code)["website"]
+        self.store.set_output_status(output["id"], "APPROVED_WAITING")
+        self.assertFalse(archive.task_waiting_too_long(
+            self.store, code))
+        self.backdate_output_created(output["id"], 49)
+        self.assertTrue(archive.task_waiting_too_long(
+            self.store, code))
+
+    def test_facebook_live_request_blocks_scan(self):
+        task = self.make_task_with_files(channels=("facebook",))
+        code = task["code"]
+        output = self.outputs(code)["facebook"]
+        self.store.set_output_draft(output["id"], "https://ex.test/d")
+        self.store.set_output_status(output["id"], "APPROVED_WAITING")
+        self.backdate_audit(output["id"], "approve_output", 49)
+        self.store.set_output_fb_request(output["id"], ["profile"])
+        self.assertTrue(archive.has_outstanding_publish_request(
+            self.store, self.store.get_output(output["id"])))
+        acted = archive.scan_waiting_tasks(
+            self.store, self.files_dir, spawn=False,
+            uploader=self.fake_uploader, config_path=self.config_path)
+        self.assertEqual(acted, [])
+        self.store.clear_fb_request(output["id"])
+        self.assertFalse(archive.has_outstanding_publish_request(
+            self.store, self.store.get_output(output["id"])))
+
+    def test_ensure_task_folder_creates_once(self):
+        calls = []
+
+        def runner(argv):
+            calls.append(argv)
+            return 0, json.dumps({"id": "folder-xyz"}), ""
+
+        first = archive.ensure_task_folder(
+            self.config_path, "CV-TEST", runner=runner)
+        second = archive.ensure_task_folder(
+            self.config_path, "CV-TEST", runner=runner)
+        self.assertEqual((first, second), ("folder-xyz", "folder-xyz"))
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

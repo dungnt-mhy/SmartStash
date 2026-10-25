@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import archive  # noqa: E402  (TD-0024: auto-restore archived files)
 import roles
 import stats as stats_mod
 from storage import (
@@ -2868,6 +2869,11 @@ class BotApp:
                          "output", output["id"],
                          detail=f"task={task['code']} "
                                 f"channel={output['channel']}")
+        # TD-0024 (e): the materials may have been archived to
+        # Drive (48h wait / published) — bring them back before
+        # Muse acts on this order.
+        archive.maybe_restore_task(self.store, self.files_dir,
+                                   task["code"])
         self._answer(callback_id,
                      "⏳ Đã nhận lệnh đăng — Muse sẽ đăng ngay và "
                      "gửi link bài khi xong.")
@@ -3050,6 +3056,10 @@ class BotApp:
             detail=f"task={task['code']} channel=facebook "
                    f"targets={','.join(selected)}"
                    + (f" target={legacy}" if legacy else ""))
+        # TD-0024 (e): bring archived materials back before Muse
+        # acts on this order.
+        archive.maybe_restore_task(self.store, self.files_dir,
+                                   task["code"])
         self._answer(callback_id, f"Đã chốt đăng lên {labels}")
         self._edit_card(
             chat_id, message_id,
@@ -3134,6 +3144,10 @@ class BotApp:
                          detail=f"task={task['code']} "
                                 f"channel=facebook targets={key} "
                                 f"target={target}")
+        # TD-0024 (e): bring archived materials back before Muse
+        # acts on this order.
+        archive.maybe_restore_task(self.store, self.files_dir,
+                                   task["code"])
         label = self.store.fb_place_label(key)
         self._answer(callback_id, f"Đã chốt đăng lên {label}")
         self._edit_card(
@@ -3396,6 +3410,10 @@ class BotApp:
         self.store.audit(
             user["telegram_id"], "schedule_set", "output", output["id"],
             detail=detail)
+        # TD-0024 (e): the files must be back on the server by the
+        # time this schedule fires — start the restore now.
+        archive.maybe_restore_task(self.store, self.files_dir,
+                                   task["code"])
         message = (
             f"🕐 Đã đặt lịch đăng thẻ kênh {label} của việc "
             f"{task['code']} lúc {_format_created(when_utc)} "
@@ -3485,6 +3503,11 @@ class BotApp:
                 detail += f" target={output['publish_target']}"
             self.store.audit(None, "publish_requested", "output",
                              output["id"], detail=detail)
+            # TD-0024 (e): a schedule fired — the materials may
+            # have been archived since it was set; bring them back
+            # before Muse acts.
+            archive.maybe_restore_task(self.store, self.files_dir,
+                                       task["code"])
             label = CHANNELS.get(output["channel"], {}).get(
                 "label", output["channel"])
             recipients = []

@@ -45,6 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import archive  # noqa: E402  (TD-0024: Drive archive/restore)
 from handlers import BotApp
 from image_host import ImageHost
 from storage import Store
@@ -806,6 +807,10 @@ def cmd_set_output_published(store, args) -> int:
         store.set_output_pending_choice(output["id"], False)
         store.set_output_status(output["id"], "PUBLISHED")
         store.sync_task_status_from_outputs(args.task_code)
+        # TD-0024 (b): every place done — when this was the last
+        # unpublished output, the task's files move to Drive.
+        archive.maybe_archive_task(
+            store, DEFAULT_DATA_DIR / "files", args.task_code)
         output = store.get_output(output["id"])
         from storage import CHANNELS
         label = CHANNELS.get(output["channel"], {}).get(
@@ -836,6 +841,10 @@ def cmd_set_output_published(store, args) -> int:
                 f"published:{output['id']}:{aid}",
                 task_code=args.task_code)
     store.sync_task_status_from_outputs(args.task_code)
+    # TD-0024 (b): this flip may have completed the task — when
+    # every output is PUBLISHED now, the files move to Drive.
+    archive.maybe_archive_task(
+        store, DEFAULT_DATA_DIR / "files", args.task_code)
     client = build_client_or_warn(args.no_notify)
     output = store.get_output(output["id"])
     from storage import CHANNELS
@@ -1002,6 +1011,33 @@ def cmd_set_output_retracted(store, args) -> int:
     return 0
 
 
+def cmd_archive_task_files(store, args) -> int:
+    """TD-0024: run the Drive archive for one task in the
+    foreground (manual trigger / retry after a failed run). The
+    shared archive_task_files() does the work; a Drive failure
+    keeps every local file and exits non-zero."""
+    files_dir = Path(args.data_dir) / "files"
+    result = archive.archive_task_files(
+        store, files_dir, args.task_code, reason="manual",
+        log=lambda msg: print(msg, flush=True))
+    print(f"Lưu trữ {args.task_code}: {result['status']} "
+          f"({len(result['files'])} file).")
+    return 0 if result["status"] in ("done", "nothing_to_archive") else 1
+
+
+def cmd_restore_task_files(store, args) -> int:
+    """TD-0024: download a task's archived files back from Drive
+    in the foreground (manual trigger — e.g. before Muse revises
+    a draft whose materials were archived)."""
+    files_dir = Path(args.data_dir) / "files"
+    result = archive.restore_task_files(
+        store, files_dir, args.task_code,
+        log=lambda msg: print(msg, flush=True))
+    print(f"Khôi phục {args.task_code}: {result['status']} "
+          f"({len(result['files'])} file).")
+    return 0 if result["status"] in ("done", "nothing_to_restore") else 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Điều khiển bot giao việc (dùng nội bộ bởi Muse)")
@@ -1087,6 +1123,18 @@ def main(argv=None) -> int:
         help="Facebook nhiều nơi: ghi nhận riêng một nơi đã xoá; "
              "chỉ lật RETRACTED khi đủ mọi nơi đã đăng")
 
+    p_arch = sub.add_parser(
+        "archive-task-files",
+        help="TD-0024: lưu trữ file tư liệu của một việc lên Google "
+             "Drive rồi xóa khỏi máy chủ (chạy ngay tại chỗ)")
+    p_arch.add_argument("task_code")
+
+    p_rest = sub.add_parser(
+        "restore-task-files",
+        help="TD-0024: tải lại file tư liệu đã lưu trữ của một việc "
+             "từ Google Drive về máy chủ (chạy ngay tại chỗ)")
+    p_rest.add_argument("task_code")
+
     args = parser.parse_args(argv)
     store = Store(Path(args.data_dir) / "bot.db")
     try:
@@ -1108,6 +1156,10 @@ def main(argv=None) -> int:
             return cmd_set_output_place_failed(store, args)
         if args.command == "set-output-retracted":
             return cmd_set_output_retracted(store, args)
+        if args.command == "archive-task-files":
+            return cmd_archive_task_files(store, args)
+        if args.command == "restore-task-files":
+            return cmd_restore_task_files(store, args)
     finally:
         store.close()
     return 2
