@@ -250,6 +250,20 @@ class TelegramClient:
             language_code=language_code,
         )
 
+    def set_chat_menu_button(self, menu_button, chat_id=None):
+        """TD-0020: bottom-left Menu button (e.g. a WebApp button).
+
+        Takes chat_id (NOT scope — setChatMenuButton has no scope
+        parameter; passing one silently applies the button to the
+        DEFAULT menu instead of the chat, verified live 2026-10-25).
+        To reset a chat's button to the default commands button, pass
+        menu_button={"type": "default"} — there is NO deleteChatMenuButton
+        method in the Bot API (verified 2026-10-25, Bot API 10.3; the
+        deleted method answers HTTP 404)."""
+        return self.call(
+            "setChatMenuButton", menu_button=menu_button, chat_id=chat_id,
+        )
+
     def answer_callback_query(self, callback_query_id, text=None,
                               show_alert=False):
         return self.call(

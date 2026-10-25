@@ -65,6 +65,7 @@ class FakeApi:
         self.answered = []   # [{callback_query_id, text, show_alert}]
         self.edits = []      # [{chat_id, message_id, text?, reply_markup}]
         self.commands_set = []  # [{commands, scope}]
+        self.menu_buttons = []  # [{menu_button, chat_id}] (TD-0020)
         self.documents = []  # [{chat_id, path, caption}]
         self.videos = []     # [{chat_id, video, caption, reply_markup}]
         self._next_id = 1
@@ -122,6 +123,11 @@ class FakeApi:
 
     def set_my_commands(self, commands, scope=None, language_code=None):
         self.commands_set.append({"commands": commands, "scope": scope})
+        return True
+
+    def set_chat_menu_button(self, menu_button, chat_id=None):
+        self.menu_buttons.append({"menu_button": menu_button,
+                                  "chat_id": chat_id})
         return True
 
     def answer_callback_query(self, callback_query_id, text=None, show_alert=False):
@@ -2857,6 +2863,77 @@ class Phase2TestCase(BotTestCase):
         later = datetime(2026, 10, 23, 21, 40, tzinfo=tz)
         self.assertFalse(self.app.maybe_send_daily_summary(now=later))
         self.assertEqual(self.api.texts_to(ADMIN), [])
+
+
+# ------------------------------------------------------- TD-0020: Mini App
+class MiniAppTestCase(unittest.TestCase):
+    """Own fixture (same cast as BotTestCase.setUp) so the suite does
+    not re-run BotTestCase's 74 tests under yet another subclass."""
+
+    def setUp(self):
+        self.store = Store(":memory:")
+        self.api = FakeApi()
+        self.app = BotApp(self.store, self.api)
+        for uid, role, can_publish in (
+            (ADMIN, roles.ROLE_ADMIN, True),
+            (EDITOR, roles.ROLE_EDITOR, False),
+            (CONTRIBUTOR, roles.ROLE_CONTRIBUTOR, False),
+        ):
+            self.store.register_user(uid, f"user{uid}", f"User{uid}", uid)
+            self.store.set_role(uid, role, can_publish=can_publish)
+        self.api.sent.clear()
+
+    def tearDown(self):
+        self.store.close()
+
+    def test_menu_button_set_for_role_users(self):
+        self.app.sync_all_commands()
+        by_chat = {}
+        for entry in self.api.menu_buttons:
+            if entry["chat_id"] is not None:
+                by_chat[entry["chat_id"]] = entry["menu_button"]
+        for uid in (ADMIN, EDITOR, CONTRIBUTOR):
+            self.assertIn(uid, by_chat)
+            self.assertEqual(by_chat[uid]["type"], "web_app")
+            self.assertEqual(by_chat[uid]["web_app"]["url"],
+                             handlers.MINIAPP_URL)
+            self.assertEqual(by_chat[uid]["text"], "Mở Mini App")
+
+    def test_menu_button_reset_for_roleless_user(self):
+        # No deleteChatMenuButton in the Bot API: the button is reset
+        # via setChatMenuButton with {"type": "default"}.
+        self.store.register_user(NEWBIE, "newbie", "Newbie", NEWBIE)
+        self.app.sync_all_commands()
+        by_chat = {}
+        for entry in self.api.menu_buttons:
+            if entry["chat_id"] is not None:
+                by_chat[entry["chat_id"]] = entry["menu_button"]
+        self.assertIn(NEWBIE, by_chat)
+        self.assertEqual(by_chat[NEWBIE], {"type": "default"})
+
+    def test_miniap_command_sends_webapp_button(self):
+        self.app.handle_update(message_update(ADMIN, text="/miniap"))
+        sent = [m for m in self.api.sent if m["chat_id"] == ADMIN]
+        self.assertTrue(sent)
+        markup = sent[-1]["reply_markup"]
+        button = markup["inline_keyboard"][0][0]
+        self.assertEqual(button["text"], "📱 Mở Mini App")
+        self.assertEqual(button["web_app"]["url"], handlers.MINIAPP_URL)
+
+    def test_miniap_command_refuses_roleless_user(self):
+        self.store.register_user(NEWBIE, "newbie", "Newbie", NEWBIE)
+        self.app.handle_update(message_update(NEWBIE, text="/miniap"))
+        texts = self.api.texts_to(NEWBIE)
+        self.assertTrue(any("chưa được cấp quyền" in t for t in texts))
+        for message in self.api.sent:
+            if message["chat_id"] != NEWBIE:
+                continue
+            markup = message.get("reply_markup") or {}
+            self.assertNotIn("inline_keyboard", markup)
+
+    def test_miniap_in_base_commands(self):
+        self.assertIn("miniap",
+                      [c["command"] for c in handlers.BASE_COMMANDS])
 
 
 if __name__ == "__main__":

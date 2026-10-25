@@ -214,9 +214,14 @@ def wizard_hint_keyboard():
 #: and a longer list is registered per private chat (BotCommandScopeChat)
 #: for reviewers and admins. The menu is presentation only; every
 #: command is still authorised server-side.
+#: TD-0020: the Telegram Mini App URL (same backend + bot.db as the
+#: Web App PWA; HTTPS is required by Telegram for WebApp buttons).
+MINIAPP_URL = "https://post.iaict-platform.com/miniap/"
+
 BASE_COMMANDS = [
     {"command": "start", "description": "Bắt đầu / đăng ký"},
     {"command": "menu", "description": "Hiện bàn phím chính"},
+    {"command": "miniap", "description": "Mở Mini App Giao Việc"},
     {"command": "giaoviec", "description": "Giao việc mới (từng bước)"},
     {"command": "viec", "description": "Danh sách việc"},
     {"command": "vaitro", "description": "Danh sách vai trò"},
@@ -408,12 +413,39 @@ class BotApp:
         if user is None:
             return
         fn = getattr(self.api, "set_my_commands", None)
-        if fn is None:
+        if fn is not None:
+            chat_id = user["chat_id"] or user["telegram_id"]
+            try:
+                fn(commands_for_role(user["role"]),
+                   scope={"type": "chat", "chat_id": chat_id})
+            except Exception:
+                pass
+        self.sync_menu_button(user)
+
+    def sync_menu_button(self, user):
+        """TD-0020: bottom-left Menu button for one user's private chat.
+
+        Users who already have a role get a WebApp button opening the
+        Mini App; users without a role (or unknown) get the button
+        reset to the default commands button (there is no
+        deleteChatMenuButton method in the Bot API — resetting is done
+        via setChatMenuButton with {"type": "default"}). Strangers
+        opening the Mini App are refused login anyway, but they never
+        see the button in the first place. Never raises: the button is
+        a convenience, not a permission.
+        """
+        if user is None:
             return
         chat_id = user["chat_id"] or user["telegram_id"]
         try:
-            fn(commands_for_role(user["role"]),
-               scope={"type": "chat", "chat_id": chat_id})
+            setter = getattr(self.api, "set_chat_menu_button", None)
+            if setter is None:
+                return
+            if user["role"]:
+                setter({"type": "web_app", "text": "Mở Mini App",
+                        "web_app": {"url": MINIAPP_URL}}, chat_id=chat_id)
+            else:
+                setter({"type": "default"}, chat_id=chat_id)
         except Exception:
             pass
 
@@ -787,6 +819,7 @@ class BotApp:
         handler = {
             "/start": self._cmd_start,
             "/menu": self._cmd_menu,
+            "/miniap": self._cmd_miniap,
             "/vaitro": self._cmd_vaitro,
             "/danhsach": self._cmd_danhsach,
             "/capquyen": self._cmd_capquyen,
@@ -856,6 +889,27 @@ class BotApp:
             lines.append("")
             lines.append(("\n\n" + "─" * 12 + "\n\n").join(sections))
         self._send(chat_id, "\n".join(lines))
+
+    def _cmd_miniap(self, user, tg_user, chat_id):
+        """TD-0020: send the button that opens the Mini App. Only
+        users who already have a role get the button; anyone else is
+        refused politely (the Mini App itself also refuses login for
+        accounts without a role)."""
+        if user is None or not user["role"]:
+            self._send(
+                chat_id,
+                "Bạn chưa được cấp quyền trong hệ thống. "
+                "Admin sẽ cấp quyền cho bạn ngay trong Telegram, "
+                "sau đó hãy gõ /miniap để mở Mini App.")
+            return
+        self._send(
+            chat_id,
+            "📱 Mini App Giao Việc — giao việc, duyệt và đăng bài ngay "
+            "trong Telegram (cùng dữ liệu với Web App).",
+            reply_markup={"inline_keyboard": [[{
+                "text": "📱 Mở Mini App",
+                "web_app": {"url": MINIAPP_URL},
+            }]]})
 
     def _cmd_menu(self, user, tg_user, chat_id):
         """Show the main reply keyboard again after it was hidden."""
