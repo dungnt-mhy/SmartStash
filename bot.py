@@ -68,6 +68,17 @@ def main(argv=None) -> int:
                 app.fire_due_schedules()
             except Exception as exc:
                 print(f"Kiểm tra lịch đăng lỗi: {exc}", file=sys.stderr)
+            # TD-0026: Graph API publish/retract for Facebook Page
+            # places. Each worker guards its own loop; a failure in
+            # one place must not stop the others.
+            try:
+                app.process_api_publishes()
+            except Exception as exc:
+                print(f"Đăng qua API lỗi: {exc}", file=sys.stderr)
+            try:
+                app.process_api_retracts()
+            except Exception as exc:
+                print(f"Thu hồi qua API lỗi: {exc}", file=sys.stderr)
             # Daily 20:00 digest for admins (once a day, meta-gated).
             try:
                 app.maybe_send_daily_summary()

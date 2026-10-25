@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import archive  # noqa: E402  (TD-0024: auto-restore archived files)
+import facebook_api  # noqa: E402  (TD-0026: Graph API publish/retract)
 import roles
 import stats as stats_mod
+from web_notify import _notify_web  # noqa: E402  (TD-0026)
 from storage import (
     CHANNELS,
     CHANNEL_ORDER,
@@ -3591,6 +3594,319 @@ class BotApp:
                 text += (" — Muse đang đăng, link bài sẽ được gửi "
                          "ngay khi đăng xong.")
                 self._send(rcpt, text)
+
+    # --------------------------- TD-0026: Graph API publish/retract
+    def _api_recipients(self, task):
+        """Creator + admins (user rows) for publish/retract notices —
+        the same recipients botctl uses for set-output-published."""
+        rows, seen = [], set()
+        creator = self.store.get_user(task["creator_id"])
+        if creator is not None:
+            rows.append(creator)
+            seen.add(creator["telegram_id"])
+        for admin in self.store.admins():
+            if admin["telegram_id"] not in seen:
+                rows.append(admin)
+                seen.add(admin["telegram_id"])
+        return rows
+
+    def _api_notify_output(self, task, output, prefix):
+        """Send the fresh channel card to creator + admins. Never
+        raises: a failed send must not stop the worker loop."""
+        for row in self._api_recipients(task):
+            if row["chat_id"] is None:
+                continue
+            try:
+                self.send_output_card(row["chat_id"], output, task,
+                                      row, prefix=prefix)
+            except Exception as exc:
+                print(f"Cảnh báo: không gửi được thẻ kênh tới "
+                      f"{row['telegram_id']}: {exc}", file=sys.stderr)
+
+    def process_api_publishes(self, force_unpublished=False):
+        """Publish pending Facebook Page places through the Graph API
+        (TD-0026). Runs each loop pass after fire_due_schedules, so
+        it covers Đăng confirms, webapp publishes and fired
+        schedules alike. Profile places are skipped — the Graph API
+        cannot post to profiles, Muse still posts those in the
+        browser.
+
+        Anti-double-post: a place is attempted only when the newest
+        publish_requested audit is newer than the newest
+        fb_place_failed and the newest fb_api_publish_attempt for
+        that place. A claim with no outcome (the process died
+        mid-flight) parks the place for Muse until a new order
+        arrives; a recorded success never re-posts (the place is in
+        the done set)."""
+        for output in self.store.list_fb_publish_requested():
+            task = self.store.get_task(output["task_code"])
+            if task is None:
+                continue
+            state = self.store.fb_state(output)
+            for place in list(state["request"]):
+                if place in state["done"] or place in state["failed"]:
+                    continue
+                page_id = facebook_api.page_id_for_place(place)
+                if page_id is None:
+                    continue
+                req_id = self.store.latest_audit_id(
+                    output["id"], "publish_requested")
+                if req_id is None:
+                    continue
+                failed_id = self.store.latest_audit_id_for_place(
+                    output["id"], "fb_place_failed", place)
+                if failed_id is not None and failed_id > req_id:
+                    continue
+                claim_id = self.store.latest_audit_id_for_place(
+                    output["id"], "fb_api_publish_attempt", place)
+                if claim_id is not None and claim_id > req_id:
+                    continue
+                self._api_publish_place(output, task, place, page_id,
+                                        force_unpublished)
+
+    def _api_publish_place(self, output, task, place, page_id,
+                           force_unpublished=False):
+        """One Page place via the Graph API: claim, fetch draft text
+        + task photos, publish, verify, complete — or record the
+        failure and tell the Admin (the browser fallback stays)."""
+        self.store.audit(
+            None, "fb_api_publish_attempt", "output", output["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"place={place}")
+        if self.files_dir is None:
+            self._api_publish_failed(
+                output, task, place,
+                "bot chưa cấu hình thư mục tư liệu")
+            return
+        try:
+            archive.maybe_restore_task(self.store, self.files_dir,
+                                       task["code"])
+            text = facebook_api.fetch_draft_text(output["draft_ref"])
+            photos = facebook_api.task_photos(self.files_dir,
+                                              task["code"])
+            post_id, url = facebook_api.publish_facebook_page(
+                page_id, text, photos,
+                published=not force_unpublished)
+        except facebook_api.GraphApiError as exc:
+            self._api_publish_failed(output, task, place, str(exc))
+            return
+        self._api_publish_done(output, task, place, post_id, url)
+
+    def _api_publish_done(self, output, task, place, post_id, url):
+        """Complete one API-published place exactly like botctl
+        set-output-published --place: mark done, audit with
+        via=graph_api + post_id (the retract worker reads it),
+        PUBLISHED only when every place is done, same card + web
+        notification + push. A full completion also archives the
+        task's files to Drive (TD-0024)."""
+        all_done, fresh_state = self.store.mark_fb_place_done(
+            output["id"], place, url)
+        self.store.audit(
+            None, "set_output_published", "output", output["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"place={place} public_url={url} "
+                   f"done={','.join(fresh_state['done'])} "
+                   f"remaining={','.join(fresh_state['remaining'])} "
+                   f"via=graph_api post_id={post_id}")
+        aid = self.store.latest_audit_id(output["id"],
+                                         "set_output_published")
+        done_links = "\n".join(
+            f"{self.store.fb_place_short(k)}: {fresh_state['urls'][k]}"
+            for k in fresh_state["done"] if k in fresh_state["urls"])
+        if not all_done:
+            fresh = self.store.get_output(output["id"])
+            done_s = ", ".join(self.store.fb_place_short(k)
+                               for k in fresh_state["done"])
+            rem_s = ", ".join(self.store.fb_place_short(k)
+                              for k in fresh_state["remaining"])
+            self._api_notify_output(
+                task, fresh,
+                prefix=f"⏳ Đã đăng Facebook "
+                       f"({len(fresh_state['done'])}"
+                       f"/{len(fresh_state['target_set'])} nơi): "
+                       f"{done_s} — còn {rem_s} chưa xong:")
+            _notify_web(
+                self.store, False, "published",
+                f"⏳ Đã đăng Facebook ({len(fresh_state['done'])}"
+                f"/{len(fresh_state['target_set'])} nơi)",
+                f"{task['code']} · kênh facebook: đã đăng {done_s}"
+                f" — còn {rem_s} chưa xong:\n{done_links}",
+                f"published:{output['id']}:{aid}",
+                task_code=task["code"])
+            return
+        self.store.set_output_pending_choice(output["id"], False)
+        self.store.set_output_status(output["id"], "PUBLISHED")
+        self.store.sync_task_status_from_outputs(task["code"])
+        archive.maybe_archive_task(self.store, self.files_dir,
+                                   task["code"])
+        output = self.store.get_output(output["id"])
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        self._api_notify_output(
+            task, output,
+            prefix=f"✅ Đã đăng thành công — thẻ kênh {label} "
+                   f"của việc {task['code']}:")
+        _notify_web(
+            self.store, False, "published", "✅ Đã đăng thành công",
+            f"{task['code']} · kênh facebook:\n{done_links}",
+            f"published:{output['id']}:{aid}",
+            task_code=task["code"])
+
+    def _api_publish_failed(self, output, task, place, reason):
+        """Record one API failure like botctl set-output-place-failed:
+        the output stays APPROVED_WAITING, the Admin is told the API
+        failed and why (Muse posts via the browser instead). Never
+        flips PUBLISHED."""
+        self.store.mark_fb_place_failed(output["id"], place)
+        self.store.set_output_pending_choice(output["id"], False)
+        self.store.audit(
+            None, "fb_place_failed", "output", output["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"place={place} reason={reason}")
+        aid = self.store.latest_audit_id(output["id"], "fb_place_failed")
+        fresh = self.store.get_output(output["id"])
+        state = self.store.fb_state(fresh)
+        done_s = ", ".join(self.store.fb_place_short(k)
+                           for k in state["done"]) or "chưa có"
+        failed_s = ", ".join(self.store.fb_place_short(k)
+                             for k in state["failed"])
+        rem_s = ", ".join(self.store.fb_place_short(k)
+                          for k in state["remaining"]) or "không còn"
+        short = self.store.fb_place_short(place)
+        self._api_notify_output(
+            task, fresh,
+            prefix=f"⚠️ Đăng qua API lên {short} lỗi ({reason}) — "
+                   "Muse sẽ đăng bằng trình duyệt. Đã đăng: "
+                   f"{done_s}; lỗi: {failed_s}; còn lại: {rem_s}:")
+        done_links = "\n".join(
+            f"{self.store.fb_place_short(k)}: {state['urls'][k]}"
+            for k in state["done"] if k in state["urls"])
+        _notify_web(
+            self.store, False, "publish_failed",
+            "⚠️ Đăng Facebook qua API lỗi",
+            f"{task['code']} · kênh facebook: đăng API lên {short} "
+            f"lỗi ({reason}); đã đăng {done_s}; lỗi: {failed_s}; "
+            f"còn lại: {rem_s}"
+            + (f":\n{done_links}" if done_links else ""),
+            f"publish_failed:{output['id']}:{aid}",
+            task_code=task["code"])
+
+    def process_api_retracts(self):
+        """Retract API-published Facebook Page places through the
+        Graph API (TD-0026). Runs each loop pass after
+        process_api_publishes. Only places whose completion audit
+        carries via=graph_api + post_id are handled — browser posts
+        stay for Muse. A delete is retried on the next pass when it
+        fails; deleting an already-gone post counts as deleted."""
+        for output in self.store.list_published_facebook_outputs():
+            task = self.store.get_task(output["task_code"])
+            if task is None:
+                continue
+            req = self.store.latest_audit(
+                output["id"], "retract_requested")
+            if req is None:
+                continue
+            detail = req["detail"] or ""
+            places = []
+            for token in detail.split():
+                if token.startswith("places="):
+                    places = token[len("places="):].split(",")
+            state = self.store.fb_state(output)
+            if not places:
+                places = list(state["done"])
+            for place in places:
+                if place in state["retracted"]:
+                    continue
+                if place not in state["done"]:
+                    continue
+                page_id = facebook_api.page_id_for_place(place)
+                if page_id is None:
+                    continue
+                post_id = self.store.fb_api_post_id(output["id"], place)
+                if post_id is None:
+                    continue
+                self._api_retract_place(output, task, place, page_id,
+                                        post_id)
+
+    def _api_notify_text(self, task, text):
+        """Plain text notice to creator + admins. Never raises."""
+        chat_ids = []
+        creator = self.store.get_user(task["creator_id"])
+        if creator is not None and creator["chat_id"]:
+            chat_ids.append(creator["chat_id"])
+        for admin in self.store.admins():
+            if admin["chat_id"] and admin["chat_id"] not in chat_ids:
+                chat_ids.append(admin["chat_id"])
+        for chat_id in chat_ids:
+            try:
+                self._send(chat_id, text)
+            except Exception:
+                pass
+
+    def _api_retract_place(self, output, task, place, page_id, post_id):
+        """Delete one API-published Page post and complete the
+        retract like botctl set-output-retracted --place. On API
+        failure the place stays published and the Admin is told —
+        the state is never flipped on an unverified delete."""
+        try:
+            page_token = facebook_api.get_page_token(page_id)
+            deleted = facebook_api.delete_page_post(page_token, post_id)
+        except facebook_api.GraphApiError as exc:
+            self._api_notify_text(
+                task,
+                f"⚠️ Thu hồi qua API ở "
+                f"{self.store.fb_place_short(place)} lỗi ({exc}) — "
+                "Muse sẽ xoá bằng trình duyệt.")
+            return
+        if not deleted:
+            self._api_notify_text(
+                task,
+                f"⚠️ Thu hồi qua API ở "
+                f"{self.store.fb_place_short(place)} chưa xác minh "
+                "được bài đã xoá — Muse sẽ kiểm tra lại.")
+            return
+        self.store.set_output_pending_choice(output["id"], False)
+        all_retracted, remaining = self.store.mark_fb_place_retracted(
+            output["id"], place)
+        self.store.audit(
+            None, "retract_output_place", "output", output["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"place={place} remaining={','.join(remaining)} "
+                   "via=graph_api")
+        if not all_retracted:
+            aid = self.store.latest_audit_id(
+                output["id"], "retract_output_place")
+            rem_s = ", ".join(self.store.fb_place_short(k)
+                              for k in remaining) or "không còn"
+            _notify_web(
+                self.store, False, "retracted",
+                "↩️ Đã xoá 1 nơi trên Facebook",
+                f"{task['code']} · kênh facebook: đã xoá "
+                f"{self.store.fb_place_short(place)}; còn lại: {rem_s}.",
+                f"retracted:{output['id']}:{aid}",
+                task_code=task["code"])
+            return
+        self.store.set_output_status(output["id"], "RETRACTED")
+        self.store.audit(
+            None, "retract_output", "output", output["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   "real_delete=1 via=graph_api")
+        self.store.sync_task_status_from_outputs(task["code"])
+        output = self.store.get_output(output["id"])
+        label = CHANNELS.get(output["channel"], {}).get(
+            "label", output["channel"])
+        self._api_notify_output(
+            task, output,
+            prefix=f"↩️ Đã thu hồi — bài đã được xoá thật trên "
+                   f"Facebook, thẻ kênh {label} của việc "
+                   f"{task['code']}:")
+        aid = self.store.latest_audit_id(output["id"], "retract_output")
+        _notify_web(
+            self.store, False, "retracted",
+            "↩️ Đã thu hồi — bài đã được xoá thật trên Facebook",
+            f"{task['code']} · kênh {label}",
+            f"retracted:{output['id']}:{aid}",
+            task_code=task["code"])
 
     def _output_retract_start(self, callback_id, user, chat_id, output, task):
         if output["status"] != STATUS_PUBLISHED:

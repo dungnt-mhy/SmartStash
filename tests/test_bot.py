@@ -22,6 +22,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import archive
 import botctl
+import facebook_api  # noqa: E402  (TD-0026: Graph API publish/retract)
+import web_notify
 import roles
 import handlers
 from handlers import BotApp
@@ -651,7 +653,7 @@ class BotTestCase(unittest.TestCase):
                 for b in row]
         # TD-0013: toggle picker, both places pre-selected.
         self.assertIn(f"out_schtog:{fb['id']}:profile", data)
-        self.assertIn(f"out_schtog:{fb['id']}:page_61595515900524",
+        self.assertIn(f"out_schtog:{fb['id']}:page_1319112221296020",
                       data)
         self.assertIn(f"out_schconfirm:{fb['id']}", data)
         # Narrow to the Fanpage only, then confirm and pick a time.
@@ -1761,7 +1763,7 @@ class BotTestCase(unittest.TestCase):
         data = [d for d, _t in self._choice_buttons(choice)]
         texts = [t for _d, t in self._choice_buttons(choice)]
         self.assertIn(f"out_pubtog:{fb['id']}:profile", data)
-        self.assertIn(f"out_pubtog:{fb['id']}:page_61595515900524",
+        self.assertIn(f"out_pubtog:{fb['id']}:page_1319112221296020",
                       data)
         self.assertIn(f"out_pubconfirm:{fb['id']}", data)
         self.assertIn("🚀 Đăng lên 2 nơi", texts)
@@ -1782,13 +1784,13 @@ class BotTestCase(unittest.TestCase):
             callback_update(ADMIN, f"out_pubconfirm:{fb['id']}"))
         reqs = self.store.audit_entries("publish_requested")
         self.assertEqual(len(reqs), 1)
-        self.assertIn("targets=profile,page_61595515900524",
+        self.assertIn("targets=profile,page_1319112221296020",
                       reqs[0]["detail"])
         state = self.store.fb_state(self.store.get_output(fb["id"]))
         self.assertEqual(state["request"],
-                         ["profile", "page_61595515900524"])
+                         ["profile", "page_1319112221296020"])
         self.assertEqual(state["target_set"],
-                         ["profile", "page_61595515900524"])
+                         ["profile", "page_1319112221296020"])
         self.assertEqual(self.store.get_output(fb["id"])["pending_choice"],
                          1)
         self.assertTrue(any("Trang cá nhân, Fanpage Minhy" in (e.get("text") or "")
@@ -1802,7 +1804,7 @@ class BotTestCase(unittest.TestCase):
             callback_update(ADMIN, f"out_pubtog:{fb['id']}:profile"))
         self.app.handle_update(
             callback_update(ADMIN,
-                            f"out_pubtog:{fb['id']}:page_61595515900524"))
+                            f"out_pubtog:{fb['id']}:page_1319112221296020"))
         self.app.handle_update(
             callback_update(ADMIN, f"out_pubconfirm:{fb['id']}"))
         self.assertTrue(any("ít nhất 1 nơi" in (a.get("text") or "")
@@ -1817,7 +1819,7 @@ class BotTestCase(unittest.TestCase):
     def test_fb_multi_partial_retry_and_retract(self):
         task, fb = self._fb_waiting()
         self.store.set_output_fb_request(
-            fb["id"], ["profile", "page_61595515900524"])
+            fb["id"], ["profile", "page_1319112221296020"])
         code = task["code"]
 
         def pub(place, url):
@@ -1842,18 +1844,18 @@ class BotTestCase(unittest.TestCase):
         rc = botctl.cmd_set_output_place_failed(
             self.store, argparse.Namespace(
                 task_code=code, channel="facebook",
-                place="page_61595515900524", reason="demo",
+                place="page_1319112221296020", reason="demo",
                 no_notify=True))
         self.assertEqual(rc, 0)
         st = self.store.fb_state(self.store.get_output(fb["id"]))
-        self.assertIn("page_61595515900524", st["failed"])
+        self.assertIn("page_1319112221296020", st["failed"])
         # Retry covers only the missing place; the set stays frozen.
         self.store.set_output_fb_request(fb["id"],
-                                         ["page_61595515900524"])
+                                         ["page_1319112221296020"])
         st = self.store.fb_state(self.store.get_output(fb["id"]))
         self.assertEqual(st["target_set"],
-                         ["profile", "page_61595515900524"])
-        self.assertEqual(pub("page_61595515900524",
+                         ["profile", "page_1319112221296020"])
+        self.assertEqual(pub("page_1319112221296020",
                              "https://fb.example/p2"), 0)
         self.assertEqual(self.store.get_output(fb["id"])["status"],
                          "PUBLISHED")
@@ -1864,7 +1866,7 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(ret("profile"), 0)
         self.assertEqual(self.store.get_output(fb["id"])["status"],
                          "PUBLISHED")
-        self.assertEqual(ret("page_61595515900524"), 0)
+        self.assertEqual(ret("page_1319112221296020"), 0)
         self.assertEqual(self.store.get_output(fb["id"])["status"],
                          "RETRACTED")
 
@@ -1875,7 +1877,7 @@ class BotTestCase(unittest.TestCase):
         self.store.set_output_schedule(
             fb["id"], "2030-01-01T00:00:00+00:00", "page")
         st = self.store.fb_state(self.store.get_output(fb["id"]))
-        self.assertEqual(st["request"], ["page_61595515900524"])
+        self.assertEqual(st["request"], ["page_1319112221296020"])
         self.assertEqual(self.store.get_output(fb["id"])["publish_target"],
                          "page")
         # Legacy published row with a single link and no target
@@ -1914,25 +1916,25 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(updated["publish_target"], "profile")
         st = self.store.fb_state(updated)
         self.assertEqual(st["request"],
-                         ["profile", "page_61595515900524"])
+                         ["profile", "page_1319112221296020"])
         # Force it due: firing records the request WITH both places,
         # clears the schedule and notifies with both place names.
         past = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.store.set_output_schedule(
             fb["id"], past,
-            targets=["profile", "page_61595515900524"])
+            targets=["profile", "page_1319112221296020"])
         self.api.sent.clear()
         self.app.fire_due_schedules()
         updated = self.store.get_output(fb["id"])
         self.assertIsNone(updated["scheduled_at"])
         reqs = self.store.audit_entries("publish_requested")
         self.assertEqual(len(reqs), 1)
-        self.assertIn("targets=profile,page_61595515900524",
+        self.assertIn("targets=profile,page_1319112221296020",
                       reqs[0]["detail"])
         self.assertIn("scheduled=1", reqs[0]["detail"])
         st = self.store.fb_state(updated)
         self.assertEqual(st["request"],
-                         ["profile", "page_61595515900524"])
+                         ["profile", "page_1319112221296020"])
         self.assertTrue(any("Trang cá nhân, Fanpage Minhy" in t
                             for t in self.api.texts_to(ADMIN)))
 
@@ -1944,14 +1946,14 @@ class BotTestCase(unittest.TestCase):
         _task, fb = self._fb_waiting()
         # Live request locks both places as pending.
         self.store.set_output_fb_request(
-            fb["id"], ["profile", "page_61595515900524"])
+            fb["id"], ["profile", "page_1319112221296020"])
         locked, pending = self.store.fb_locked_places(
             self.store.get_output(fb["id"]))
-        self.assertEqual(locked, ["profile", "page_61595515900524"])
-        self.assertEqual(pending, ["profile", "page_61595515900524"])
+        self.assertEqual(locked, ["profile", "page_1319112221296020"])
+        self.assertEqual(pending, ["profile", "page_1319112221296020"])
         # A failed place drops out of the lock so it can be retried.
         self.store.mark_fb_place_failed(
-            fb["id"], "page_61595515900524")
+            fb["id"], "page_1319112221296020")
         locked, pending = self.store.fb_locked_places(
             self.store.get_output(fb["id"]))
         self.assertEqual(locked, ["profile"])
@@ -1968,7 +1970,7 @@ class BotTestCase(unittest.TestCase):
         self.store.set_output_status(fb2["id"], "APPROVED_WAITING")
         self.store.set_output_schedule(
             fb2["id"], "2030-01-01T00:00:00+00:00",
-            targets=["profile", "page_61595515900524"])
+            targets=["profile", "page_1319112221296020"])
         locked2, pending2 = self.store.fb_locked_places(
             self.store.get_output(fb2["id"]))
         self.assertEqual(locked2, [])
@@ -1981,7 +1983,7 @@ class BotTestCase(unittest.TestCase):
         # A request recorded elsewhere (e.g. the webapp) while the
         # picker is open: both places are now pending-locked.
         self.store.set_output_fb_request(
-            fb["id"], ["profile", "page_61595515900524"])
+            fb["id"], ["profile", "page_1319112221296020"])
         self.app.handle_update(
             callback_update(ADMIN, f"out_pubtog:{fb['id']}:profile"))
         self.assertTrue(any("đang chờ đăng" in (a.get("text") or "")
@@ -2034,7 +2036,7 @@ class BotTestCase(unittest.TestCase):
         task, fb = self._fb_waiting()
         code = task["code"]
         self.store.set_output_fb_request(
-            fb["id"], ["profile", "page_61595515900524"])
+            fb["id"], ["profile", "page_1319112221296020"])
 
         def rows():
             # The writer creates the table on first write; a
@@ -2075,7 +2077,7 @@ class BotTestCase(unittest.TestCase):
         self.store.set_output_status(fb2["id"], "APPROVED_WAITING")
         code2 = task2["code"]
         self.store.set_output_fb_request(
-            fb2["id"], ["profile", "page_61595515900524"])
+            fb2["id"], ["profile", "page_1319112221296020"])
         pub2 = lambda place, url: botctl.cmd_set_output_published(
             self.store, argparse.Namespace(
                 task_code=code2, channel="facebook", public_url=url,
@@ -2088,7 +2090,7 @@ class BotTestCase(unittest.TestCase):
                 botctl.cmd_set_output_place_failed(
                     self.store, argparse.Namespace(
                         task_code=code2, channel="facebook",
-                        place="page_61595515900524", reason="demo",
+                        place="page_1319112221296020", reason="demo",
                         no_notify=False)), 0)
         finally:
             botctl.build_client_or_warn = original
@@ -2104,11 +2106,11 @@ class BotTestCase(unittest.TestCase):
         task, fb = self._fb_waiting()
         code = task["code"]
         self.store.set_output_fb_request(
-            fb["id"], ["profile", "page_61595515900524"])
+            fb["id"], ["profile", "page_1319112221296020"])
         calls = []
-        original_sender = botctl._WEB_PUSH_SENDER
+        original_sender = web_notify._WEB_PUSH_SENDER
         original_client = botctl.build_client_or_warn
-        botctl._WEB_PUSH_SENDER = lambda t, b, u: calls.append((t, b, u))
+        web_notify._WEB_PUSH_SENDER = lambda t, b, u: calls.append((t, b, u))
         botctl.build_client_or_warn = lambda nn: self.api
         try:
             # Partial publish -> push #1 (partial title + deep-link).
@@ -2121,14 +2123,14 @@ class BotTestCase(unittest.TestCase):
             self.assertEqual(botctl.cmd_set_output_place_failed(
                 self.store, argparse.Namespace(
                     task_code=code, channel="facebook",
-                    place="page_61595515900524", reason="demo",
+                    place="page_1319112221296020", reason="demo",
                     no_notify=False)), 0)
             # Finish the last place -> push #3 (full published title).
             self.assertEqual(botctl.cmd_set_output_published(
                 self.store, argparse.Namespace(
                     task_code=code, channel="facebook",
                     public_url="https://fb.example/p2",
-                    place="page_61595515900524",
+                    place="page_1319112221296020",
                     no_notify=False)), 0)
             # Retract one place (partial retract) -> push #4.
             self.assertEqual(botctl.cmd_set_output_retracted(
@@ -2136,7 +2138,7 @@ class BotTestCase(unittest.TestCase):
                     task_code=code, channel="facebook",
                     place="profile", no_notify=False)), 0)
         finally:
-            botctl._WEB_PUSH_SENDER = original_sender
+            web_notify._WEB_PUSH_SENDER = original_sender
             botctl.build_client_or_warn = original_client
         self.assertEqual(len(calls), 4)
         self.assertIn("⏳ Đã đăng Facebook", calls[0][0])
@@ -2150,7 +2152,7 @@ class BotTestCase(unittest.TestCase):
         self.assertEqual(calls[3][2], f"/?task={code}")
         # --no-notify skips push exactly like the inbox row.
         calls.clear()
-        botctl._WEB_PUSH_SENDER = lambda t, b, u: calls.append((t, b, u))
+        web_notify._WEB_PUSH_SENDER = lambda t, b, u: calls.append((t, b, u))
         botctl.build_client_or_warn = lambda nn: self.api
         try:
             task2 = self.store.create_task(
@@ -2167,7 +2169,7 @@ class BotTestCase(unittest.TestCase):
                     public_url="https://fb.example/p9", place="profile",
                     no_notify=True)), 0)
         finally:
-            botctl._WEB_PUSH_SENDER = original_sender
+            web_notify._WEB_PUSH_SENDER = original_sender
             botctl.build_client_or_warn = original_client
         self.assertEqual(calls, [])
 
@@ -2181,9 +2183,9 @@ class BotTestCase(unittest.TestCase):
         def boom(title, body, url):
             raise RuntimeError("push endpoint down")
 
-        original_sender = botctl._WEB_PUSH_SENDER
+        original_sender = web_notify._WEB_PUSH_SENDER
         original_client = botctl.build_client_or_warn
-        botctl._WEB_PUSH_SENDER = boom
+        web_notify._WEB_PUSH_SENDER = boom
         botctl.build_client_or_warn = lambda nn: self.api
         try:
             self.assertEqual(botctl.cmd_set_output_published(
@@ -2192,7 +2194,7 @@ class BotTestCase(unittest.TestCase):
                     public_url="https://fb.example/p1", place="profile",
                     no_notify=False)), 0)
         finally:
-            botctl._WEB_PUSH_SENDER = original_sender
+            web_notify._WEB_PUSH_SENDER = original_sender
             botctl.build_client_or_warn = original_client
         rows = self.store._conn.execute(
             "SELECT key FROM web_notification_items"
@@ -2216,7 +2218,7 @@ class BotTestCase(unittest.TestCase):
                     no_notify=False)), 0)
         finally:
             botctl.build_client_or_warn = original_client
-        self.assertIsNone(botctl._WEB_PUSH_SENDER)
+        self.assertIsNone(web_notify._WEB_PUSH_SENDER)
 
 
 class Phase1TestCase(BotTestCase):
@@ -3501,6 +3503,410 @@ class DirectToDriveTestCase(unittest.TestCase):
         self.assertEqual(
             list((self.files_dir / task["code"]).iterdir()), [])
         self.assertEqual(self.uploaded, [])
+
+
+# ------------------------------------------- TD-0026: Graph API publish
+class TD0026TestCase(unittest.TestCase):
+    """Graph API publish/retract worker + Page-id migration. No
+    network: the facebook_api surface is stubbed; the real DB
+    migration runs against a temp file."""
+
+    PAGE = "page_1319112221296020"
+    OLD_PAGE = "page_61595515900524"
+
+    def setUp(self):
+        self.store = Store(":memory:")
+        self.api = FakeApi()
+        self.tmp = tempfile.mkdtemp(prefix="td0026-test-")
+        self.app = BotApp(self.store, self.api, files_dir=self.tmp)
+        for uid, role, can_publish in (
+            (ADMIN, roles.ROLE_ADMIN, True),
+            (EDITOR, roles.ROLE_EDITOR, False),
+            (CONTRIBUTOR, roles.ROLE_CONTRIBUTOR, False),
+        ):
+            self.store.register_user(uid, f"user{uid}", f"User{uid}", uid)
+            self.store.set_role(uid, role, can_publish=can_publish)
+        self.api.sent.clear()
+        self.publish_calls = []
+        self.delete_calls = []
+        self._orig = {
+            "publish": facebook_api.publish_facebook_page,
+            "draft": facebook_api.fetch_draft_text,
+            "token": facebook_api.get_page_token,
+            "delete": facebook_api.delete_page_post,
+            "sender": web_notify._WEB_PUSH_SENDER,
+        }
+        self._orig_json = facebook_api._call_json
+        self._orig_multipart = facebook_api._call_multipart
+        facebook_api.fetch_draft_text = lambda ref: "Nội dung bài kiểm tra"
+        facebook_api.get_page_token = lambda page_id: "fake-page-token"
+
+        def fake_publish(page_id, text, photos, published=True,
+                         _page_token=None):
+            self.publish_calls.append(
+                {"page_id": page_id, "text": text, "photos": list(photos),
+                 "published": published})
+            return (f"{page_id}_123456789",
+                    f"https://www.facebook.com/{page_id}/posts/123456789")
+
+        facebook_api.publish_facebook_page = fake_publish
+
+        def fake_delete(token, post_id):
+            self.delete_calls.append({"token": token, "post_id": post_id})
+            return True
+
+        facebook_api.delete_page_post = fake_delete
+        web_notify._WEB_PUSH_SENDER = lambda t, b, u: None
+
+    def tearDown(self):
+        facebook_api.publish_facebook_page = self._orig["publish"]
+        facebook_api.fetch_draft_text = self._orig["draft"]
+        facebook_api.get_page_token = self._orig["token"]
+        facebook_api.delete_page_post = self._orig["delete"]
+        facebook_api._call_json = self._orig_json
+        facebook_api._call_multipart = self._orig_multipart
+        web_notify._WEB_PUSH_SENDER = self._orig["sender"]
+        self.store.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # ------------------------------------------------------------- helpers
+    def _fb_waiting(self, targets):
+        """Admin task, facebook output APPROVED_WAITING with a draft
+        and a live publish order for `targets`."""
+        self.app.handle_update(message_update(ADMIN, photo=PHOTO))
+        self.app.handle_update(message_update(
+            ADMIN, text="Việc của admin tự làm"))
+        task = [t for t in self.store.list_tasks()
+                if t["creator_id"] == ADMIN][0]
+        fb = self.store.get_output_by_channel(task["code"], "facebook")
+        self.store.set_output_draft(fb["id"], "https://example.com/d/fb")
+        self.store.set_output_status(fb["id"], "APPROVED_WAITING")
+        self.store.set_output_fb_request(fb["id"], targets)
+        self.store.audit(
+            None, "publish_requested", "output", fb["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"targets={','.join(targets)}")
+        return task, fb
+
+    def _add_photos(self, code, names=("anh1.jpg", "anh2.jpg")):
+        folder = Path(self.tmp) / code
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            (folder / name).write_bytes(b"\xff\xd8\xff fake jpeg")
+        return names
+
+    # --------------------------------------------------------------- tests
+    def test_page_id_migration_remaps_old_id(self):
+        db_path = str(Path(self.tmp) / "old.db")
+        store = Store(db_path)
+        store.register_user(ADMIN, "admin", "Admin", ADMIN)
+        store.set_role(ADMIN, roles.ROLE_ADMIN, can_publish=True)
+        task = store.create_task(ADMIN, roles.ROLE_ADMIN, "hint",
+                                 ["photo-large"])
+        fb = store.create_output(task["code"], "facebook")
+        store.set_output_status(fb["id"], "APPROVED_WAITING")
+        store.set_output_fb_request(fb["id"], [self.PAGE])
+        # Rewrite the live rows as if the DB predated TD-0026.
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE facebook_pages SET fb_page_id = ? "
+            "WHERE fb_page_id = ?",
+            ("61595515900524", "1319112221296020"))
+        conn.execute(
+            "UPDATE outputs SET publish_targets = ?, "
+            "fb_pending_targets = ?, "
+            "fb_place_urls = ? WHERE id = ?",
+            (json.dumps([self.OLD_PAGE]),
+             json.dumps([self.OLD_PAGE]),
+             json.dumps({self.OLD_PAGE: "https://fb.example/old"}),
+             fb["id"]))
+        conn.commit()
+        conn.close()
+        store.close()
+        # Reopening runs the migration.
+        store2 = Store(db_path)
+        pages = store2.list_facebook_pages()
+        self.assertEqual([p["fb_page_id"] for p in pages],
+                         ["1319112221296020"])
+        self.assertEqual(store2.fb_place_keys(),
+                         ["profile", self.PAGE])
+        out = store2.get_output(fb["id"])
+        state = store2.fb_state(out)
+        self.assertEqual(state["target_set"], [self.PAGE])
+        self.assertEqual(state["urls"],
+                         {self.PAGE: "https://fb.example/old"})
+        self.assertEqual(state["request"], [self.PAGE])
+        # Idempotent: a second open changes nothing.
+        store2.close()
+        store3 = Store(db_path)
+        self.assertEqual([p["fb_page_id"] for p in
+                          store3.list_facebook_pages()],
+                         ["1319112221296020"])
+        store3.close()
+
+    def test_api_publish_page_place_completes(self):
+        task, fb = self._fb_waiting([self.PAGE])
+        self._add_photos(task["code"])
+        self.app.process_api_publishes()
+        out = self.store.get_output(fb["id"])
+        self.assertEqual(out["status"], "PUBLISHED")
+        state = self.store.fb_state(out)
+        self.assertEqual(state["done"], [self.PAGE])
+        self.assertEqual(
+            state["urls"][self.PAGE],
+            "https://www.facebook.com/1319112221296020/posts/123456789")
+        self.assertEqual(len(self.publish_calls), 1)
+        call = self.publish_calls[0]
+        self.assertEqual(call["page_id"], "1319112221296020")
+        self.assertEqual(call["text"], "Nội dung bài kiểm tra")
+        self.assertEqual(len(call["photos"]), 2)
+        self.assertTrue(call["published"])
+        audits = self.store.audit_entries("set_output_published")
+        self.assertEqual(len(audits), 1)
+        self.assertIn("via=graph_api", audits[0]["detail"])
+        self.assertIn("post_id=1319112221296020_123456789",
+                      audits[0]["detail"])
+        # The Admin got the success card; the web inbox row exists.
+        self.assertTrue(any("Đã đăng thành công" in t
+                            for t in self.api.texts_to(ADMIN)))
+        keys = [r[0] for r in self.store._conn.execute(
+            "SELECT key FROM web_notification_items").fetchall()]
+        self.assertTrue(any(k.startswith("published:")
+                            for k in keys))
+
+    def test_api_publish_skips_profile_place(self):
+        task, fb = self._fb_waiting(["profile", self.PAGE])
+        self._add_photos(task["code"])
+        self.app.process_api_publishes()
+        out = self.store.get_output(fb["id"])
+        # Page done, profile left for the browser: still waiting.
+        self.assertEqual(out["status"], "APPROVED_WAITING")
+        state = self.store.fb_state(out)
+        self.assertEqual(state["done"], [self.PAGE])
+        self.assertEqual(state["remaining"], ["profile"])
+        self.assertEqual(len(self.publish_calls), 1)
+        self.assertEqual(self.publish_calls[0]["page_id"],
+                         "1319112221296020")
+
+    def test_api_publish_failure_keeps_request_pending(self):
+        task, fb = self._fb_waiting([self.PAGE])
+        self._add_photos(task["code"])
+
+        def boom(page_id, text, photos, published=True,
+                 _page_token=None):
+            self.publish_calls.append({"page_id": page_id})
+            raise facebook_api.GraphApiError("Meta lỗi 190: token hết hạn")
+
+        facebook_api.publish_facebook_page = boom
+        self.app.process_api_publishes()
+        out = self.store.get_output(fb["id"])
+        self.assertEqual(out["status"], "APPROVED_WAITING")
+        state = self.store.fb_state(out)
+        self.assertEqual(state["failed"], [self.PAGE])
+        self.assertEqual(state["done"], [])
+        self.assertTrue(any("lỗi" in t and "API" in t
+                            for t in self.api.texts_to(ADMIN)))
+        # No PUBLISHED flip, no success audit.
+        self.assertEqual(self.store.audit_entries("set_output_published"),
+                         [])
+        # A second pass does NOT retry the same order.
+        self.app.process_api_publishes()
+        self.assertEqual(len(self.publish_calls), 1)
+
+    def test_api_publish_claim_without_outcome_parks_place(self):
+        task, fb = self._fb_waiting([self.PAGE])
+        # A claim with no outcome (the process died mid-flight):
+        # the worker must not retry on its own.
+        self.store.audit(
+            None, "fb_api_publish_attempt", "output", fb["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"place={self.PAGE}")
+        self.app.process_api_publishes()
+        self.assertEqual(self.publish_calls, [])
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "APPROVED_WAITING")
+        # A fresh order from the user re-enables the attempt.
+        self.store.audit(
+            None, "publish_requested", "output", fb["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"targets={self.PAGE}")
+        self.app.process_api_publishes()
+        self.assertEqual(len(self.publish_calls), 1)
+
+    def test_api_retract_deletes_page_post(self):
+        task, fb = self._fb_waiting([self.PAGE])
+        self._add_photos(task["code"])
+        self.app.process_api_publishes()
+        out = self.store.get_output(fb["id"])
+        self.assertEqual(out["status"], "PUBLISHED")
+        url = self.store.fb_state(out)["urls"][self.PAGE]
+        self.store.audit(
+            None, "retract_requested", "output", fb["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"public_url={url} places={self.PAGE}")
+        self.app.process_api_retracts()
+        out = self.store.get_output(fb["id"])
+        self.assertEqual(out["status"], "RETRACTED")
+        self.assertEqual(len(self.delete_calls), 1)
+        self.assertEqual(self.delete_calls[0]["post_id"],
+                         "1319112221296020_123456789")
+        self.assertEqual(self.delete_calls[0]["token"], "fake-page-token")
+        audits = self.store.audit_entries("retract_output_place")
+        self.assertEqual(len(audits), 1)
+        self.assertIn("via=graph_api", audits[0]["detail"])
+        self.assertTrue(any("Đã thu hồi" in t
+                            for t in self.api.texts_to(ADMIN)))
+
+    def test_api_retract_skips_browser_published_place(self):
+        task, fb = self._fb_waiting([self.PAGE])
+        # Browser publish: no via=graph_api audit, no post id.
+        rc = botctl.cmd_set_output_published(
+            self.store, argparse.Namespace(
+                task_code=task["code"], channel="facebook",
+                public_url="https://fb.example/p1", place=self.PAGE,
+                no_notify=True))
+        self.assertEqual(rc, 0)
+        out = self.store.get_output(fb["id"])
+        self.assertEqual(out["status"], "PUBLISHED")
+        self.store.audit(
+            None, "retract_requested", "output", fb["id"],
+            detail=f"task={task['code']} channel=facebook "
+                   f"public_url=https://fb.example/p1 places={self.PAGE}")
+        self.app.process_api_retracts()
+        self.assertEqual(self.delete_calls, [])
+        self.assertEqual(self.store.get_output(fb["id"])["status"],
+                         "PUBLISHED")
+
+    def test_facebook_api_assembles_multi_photo_feed_post(self):
+        calls = []
+
+        def fake_json(method, url, data=None, headers=None, timeout=60):
+            calls.append({"method": method, "url": url, "data": data})
+            return {"id": "1319112221296020_999"}
+
+        def fake_multipart(url, fields, files, headers, timeout=120):
+            calls.append({"method": "POST", "url": url,
+                          "fields": fields,
+                          "files": [f[1] for f in files]})
+            return {"id": f"fbid-{len(calls)}"}
+
+        facebook_api._call_json = fake_json
+        facebook_api._call_multipart = fake_multipart
+        try:
+            photo1 = Path(self.tmp) / "a.jpg"
+            photo2 = Path(self.tmp) / "b.png"
+            photo1.write_bytes(b"fake1")
+            photo2.write_bytes(b"fake2")
+            post_id = facebook_api.publish_page_post(
+                "tok", "1319112221296020", "Chào cả nhà",
+                [photo1, photo2])
+            self.assertEqual(post_id, "1319112221296020_999")
+        finally:
+            facebook_api._call_json = self._orig_json
+            facebook_api._call_multipart = self._orig_multipart
+        uploads = [c for c in calls if c["url"].endswith("/photos")]
+        self.assertEqual(len(uploads), 2)
+        self.assertTrue(all(c["fields"] == [("published", "false")]
+                            for c in uploads))
+        feed = [c for c in calls if c["url"].endswith("/feed")]
+        self.assertEqual(len(feed), 1)
+        self.assertEqual(feed[0]["data"]["message"], "Chào cả nhà")
+        attached = feed[0]["data"]["attached_media"]
+        self.assertEqual(len(attached), 2)
+        self.assertEqual([m["media_fbid"] for m in attached],
+                         ["fbid-1", "fbid-2"])
+
+    def test_facebook_api_text_only_posts_once(self):
+        calls = []
+
+        def fake_json(method, url, data=None, headers=None, timeout=60):
+            calls.append({"method": method, "url": url, "data": data})
+            return {"id": "1319112221296020_777"}
+
+        facebook_api._call_json = fake_json
+        try:
+            post_id = facebook_api.publish_page_post(
+                "tok", "1319112221296020", "Chữ thuần", [])
+            self.assertEqual(post_id, "1319112221296020_777")
+        finally:
+            facebook_api._call_json = self._orig_json
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0]["url"].endswith("/feed"))
+        self.assertEqual(calls[0]["data"], {"message": "Chữ thuần"})
+
+    def test_fetch_draft_text_quotes_vietnamese_url(self):
+        import urllib.request
+        seen = {}
+        page = ("<html><body><article><p>Nội dung nháp.</p>"
+                "</article></body></html>")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return page.encode("utf-8")
+
+        class FakeOpener:
+            def open(self, request, timeout=None):
+                seen["url"] = request.full_url
+                return FakeResponse()
+
+        orig = urllib.request.build_opener
+        urllib.request.build_opener = lambda *a, **k: FakeOpener()
+        facebook_api.fetch_draft_text = self._orig["draft"]
+        try:
+            text = facebook_api.fetch_draft_text(
+                "https://telegra.ph/TD-0026-kiểm-tra-API-10-25")
+        finally:
+            urllib.request.build_opener = orig
+        self.assertEqual(text, "Nội dung nháp.")
+        self.assertNotIn("ể", seen["url"])
+        self.assertIn("%", seen["url"])
+
+    def test_facebook_api_draft_parser_skips_header_and_figures(self):
+        page = """<html><body><article>
+        <header><h1>Tiêu đề nháp</h1><address>Tác giả</address></header>
+        <p>Đoạn một của bài.</p>
+        <figure><img src="x.jpg"></figure>
+        <p>Đoạn hai<br>hai dòng.</p>
+        </article></body></html>"""
+        parser = facebook_api._DraftTextParser()
+        parser.feed(page)
+        parser.close()
+        self.assertEqual(parser.blocks,
+                         ["Đoạn một của bài.", "Đoạn hai\nhai dòng."])
+
+    def test_delete_treats_code_10_as_gone(self):
+        # Meta answers a GET on a just-deleted post with (#10)
+        # "Object does not exist..." (probe 25/10) — the delete
+        # must count as done, not as an error.
+        def fake_json(method, url, data=None, headers=None, timeout=60):
+            if method == "DELETE":
+                return {"success": True}
+            raise facebook_api.GraphApiError(
+                "(#10) Object does not exist, cannot be loaded",
+                http_status=400, code=10)
+
+        facebook_api._call_json = fake_json
+        try:
+            self.assertTrue(facebook_api.delete_page_post(
+                "tok", "1319112221296020_123"))
+            self.assertFalse(facebook_api.verify_page_post(
+                "tok", "1319112221296020_123"))
+        finally:
+            facebook_api._call_json = self._orig_json
+
+    def test_facebook_api_rejects_too_many_photos(self):
+        photos = [Path(self.tmp) / f"p{i}.jpg" for i in range(11)]
+        for p in photos:
+            p.write_bytes(b"x")
+        with self.assertRaises(facebook_api.GraphApiError):
+            facebook_api.publish_page_post(
+                "tok", "1319112221296020", "Nhiều ảnh", photos)
 
 
 if __name__ == "__main__":

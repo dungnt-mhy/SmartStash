@@ -92,8 +92,13 @@ def channel_kind(channel: str) -> str:
 FB_PROFILE_KEY = "profile"
 FB_PROFILE_LABEL = "👤 Trang cá nhân Nguyễn Trọng Minh Huy"
 FB_PROFILE_SHORT = "Trang cá nhân"
-FB_PAGE_SEED_ID = "61595515900524"
+FB_PAGE_SEED_ID = "1319112221296020"
 FB_PAGE_SEED_NAME = "Minhy"
+
+#: TD-0026: the Page id recorded on 23/10 (61595515900524) is
+#: rejected by the Graph API ("global id not allowed"). The
+#: Business Settings asset id above is the real Page id; existing
+#: databases are remapped by _migrate_fb_page_id on open.
 
 
 def _fb_json_list(raw):
@@ -355,10 +360,68 @@ class Store:
             " fb_page_id TEXT NOT NULL UNIQUE,"
             " name TEXT NOT NULL,"
             " created_at TEXT NOT NULL)")
+        # TD-0026: remap the old Page id BEFORE the seed below, so
+        # the seed never collides with the renamed row.
+        self._migrate_fb_page_id()
         self._conn.execute(
             "INSERT OR IGNORE INTO facebook_pages"
             " (fb_page_id, name, created_at) VALUES (?, ?, ?)",
             (FB_PAGE_SEED_ID, FB_PAGE_SEED_NAME, utcnow_iso()))
+
+    def _migrate_fb_page_id(self) -> None:
+        """Remap the Minhy Page id from 61595515900524 (recorded
+        23/10, rejected by the Graph API) to 1319112221296020 (the
+        Business Settings asset id): the facebook_pages row and
+        every stored place key (publish_targets, fb_target_set,
+        fb_place_urls keys, fb_place_failed, fb_place_retracted,
+        fb_pending_targets), so in-flight Page places keep working.
+        Idempotent: a database without the old row is untouched.
+        Caller must hold the lock (called from __init__)."""
+        old_id = "61595515900524"
+        old_key = f"page_{old_id}"
+        new_key = f"page_{FB_PAGE_SEED_ID}"
+        row = self._conn.execute(
+            "SELECT id FROM facebook_pages WHERE fb_page_id = ?",
+            (old_id,)).fetchone()
+        if row is None:
+            return
+        new_row = self._conn.execute(
+            "SELECT id FROM facebook_pages WHERE fb_page_id = ?",
+            (FB_PAGE_SEED_ID,)).fetchone()
+        if new_row is not None:
+            # Both ids present (e.g. a seed ran before this code):
+            # drop the old row instead of colliding on the update.
+            self._conn.execute(
+                "DELETE FROM facebook_pages WHERE id = ?", (row["id"],))
+        else:
+            self._conn.execute(
+                "UPDATE facebook_pages SET fb_page_id = ? WHERE id = ?",
+                (FB_PAGE_SEED_ID, row["id"]))
+        list_cols = ("publish_targets", "fb_target_set",
+                     "fb_place_failed", "fb_place_retracted",
+                     "fb_pending_targets")
+        for out in self._conn.execute(
+                "SELECT id, " + ", ".join(list_cols + ("fb_place_urls",))
+                + " FROM outputs").fetchall():
+            changed = {}
+            for col in list_cols:
+                items = _fb_json_list(out[col])
+                if old_key in items:
+                    items = [new_key if k == old_key else k
+                             for k in items]
+                    changed[col] = json.dumps(
+                        list(dict.fromkeys(items)), ensure_ascii=False)
+            urls = _fb_json_map(out["fb_place_urls"])
+            if old_key in urls:
+                urls = {new_key if k == old_key else k: v
+                        for k, v in urls.items()}
+                changed["fb_place_urls"] = json.dumps(
+                    urls, ensure_ascii=False)
+            if changed:
+                sets = ", ".join(f"{c} = ?" for c in changed)
+                self._conn.execute(
+                    f"UPDATE outputs SET {sets} WHERE id = ?",
+                    (*changed.values(), out["id"]))
 
     def close(self) -> None:
         with self._lock:
@@ -750,6 +813,72 @@ class Store:
                 " ORDER BY id DESC LIMIT 1",
                 (str(output_id), action),
             ).fetchone()
+
+    def latest_audit_id_for_place(self, output_id: int, action: str,
+                                  place: str):
+        """Newest audit id for one action on one output whose detail
+        names one Facebook place (a `place=<key>` token), or None.
+        TD-0026: the API worker tells a fresh publish order from a
+        place it already attempted and failed by audit order."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, detail FROM audit_log WHERE "
+                "target_type = 'output' AND target_id = ? AND action = ?"
+                " ORDER BY id DESC",
+                (str(output_id), action),
+            ).fetchall()
+        for row in rows:
+            detail = row["detail"] or ""
+            for token in detail.split():
+                if token == f"place={place}":
+                    return row["id"]
+        return None
+
+    def fb_api_post_id(self, output_id: int, place: str):
+        """Graph post id (`<page_id>_<post_id>`) recorded when the
+        API worker completed one Facebook place, or None when the
+        place was published another way (browser) or not at all.
+        TD-0026: the retract worker only API-deletes places whose
+        completion audit carries `via=graph_api post_id=...`."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT detail FROM audit_log WHERE "
+                "target_type = 'output' AND target_id = ? AND "
+                "action = 'set_output_published' ORDER BY id DESC",
+                (str(output_id),),
+            ).fetchall()
+        for row in rows:
+            detail = row["detail"] or ""
+            tokens = dict(
+                t.split("=", 1) for t in detail.split()
+                if "=" in t)
+            if tokens.get("place") == place \
+                    and tokens.get("via") == "graph_api":
+                return tokens.get("post_id")
+        return None
+
+    def list_fb_publish_requested(self):
+        """Facebook outputs holding a live publish request and no
+        schedule left: the API worker's candidates. A scheduled
+        output is excluded until its time comes (fire_due_schedules
+        clears the schedule and records the request first)."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM outputs WHERE channel = 'facebook'"
+                " AND status = 'APPROVED_WAITING'"
+                " AND publish_targets IS NOT NULL"
+                " AND scheduled_at IS NULL"
+                " ORDER BY id",
+            ).fetchall()
+
+    def list_published_facebook_outputs(self):
+        """Published Facebook outputs — the API retract worker's
+        candidates."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM outputs WHERE channel = 'facebook'"
+                " AND status = 'PUBLISHED' ORDER BY id",
+            ).fetchall()
 
     def set_output_schedule(self, output_id: int, scheduled_at,
                             publish_target=None, targets=None) -> None:
