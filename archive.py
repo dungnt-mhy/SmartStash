@@ -40,8 +40,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from storage import (STATUS_APPROVED_WAITING, STATUS_CANCELLED,
-                     STATUS_PENDING, format_ict, format_ict_short,
-                     ict_now)
+                     STATUS_PENDING, STORAGE_QUOTA_BYTES, format_ict,
+                     format_ict_short, ict_now)
 
 #: Google Drive CLI (the connected Drive account).
 DRIVE_CLI = "/opt/hatch/bin/hatch_gws_cli"
@@ -159,6 +159,56 @@ def storage_usage_bytes(root) -> int:
             except OSError:
                 continue
     return total
+
+
+def would_exceed_quota(files_dir, extra_bytes: int, quota=None,
+                       used=None) -> bool:
+    """True when adding ``extra_bytes`` under ``files_dir`` would
+    push the 9GB total over the quota (TD-0025 test injection
+    point: pass a small ``quota`` instead of filling a real 9GB;
+    pass ``used`` when the caller already measured usage, e.g.
+    before downloading a file whose bytes are not on disk yet)."""
+    limit = STORAGE_QUOTA_BYTES if quota is None else quota
+    if used is None:
+        used = storage_usage_bytes(files_dir)
+    return used + int(extra_bytes) > limit
+
+
+def direct_to_drive(store, files_dir, code: str, name: str, local_path,
+                    size: int, uploader=None, config_path=None,
+                    log=None) -> dict:
+    """TD-0025: one file that arrived while the 9GB quota is full
+    goes straight to Drive — no local copy is kept afterwards.
+
+    Reuses the TD-0024 upload + record path (per-task Drive
+    subfolder, retries, the same ``archived_files`` row the task
+    detail renders as a Drive link), so the TD-0024 restore flow
+    picks the file up exactly like an archived one. This function
+    never deletes the local file: the caller removes it only after
+    this returns "done", and keeps it (local, over quota for now)
+    on "failed".
+
+    Returns {"status": "done" | "failed", ...}."""
+    if store.archived_file(code, name) is not None:
+        # A previous run already put this file on Drive: never
+        # upload twice.
+        return {"status": "done", "already": True}
+    try:
+        folder_id = ensure_task_folder(config_path, code)
+        file_id, link = _upload_with_retries(
+            local_path, folder_id, name, uploader, log)
+    except ArchiveError as exc:
+        store.audit(None, AUDIT_ARCHIVE_FAILED, "task", code,
+                    detail=f"reason=direct_to_drive file={name} "
+                           f"error={exc} lúc {format_ict(ict_now())}")
+        _log(f"[{code}] gửi thẳng lên Drive lỗi ở {name}: {exc}", log)
+        return {"status": "failed", "error": str(exc)}
+    store.record_archived_file(code, name, file_id, link, size)
+    store.audit(None, AUDIT_ARCHIVED, "task", code,
+                detail=f"reason=direct_to_drive file={name} "
+                       f"lúc {format_ict(ict_now())}")
+    _log(f"[{code}] đã gửi thẳng {name} lên Drive (kho đầy).", log)
+    return {"status": "done", "drive_file_id": file_id, "link": link}
 
 
 # ------------------------------------------------------------ Drive CLI

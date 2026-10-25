@@ -166,6 +166,15 @@ def utcnow_iso() -> str:
 #: time a user reads is Vietnam time).
 ICT = timezone(timedelta(hours=7), name="ICT")
 
+#: Total material storage (TD-0024 (f) / TD-0025) — the ONE
+#: definition. All material files on the server (the whole
+#: data/files/ tree, tmp chunks included) may not exceed 9GB, no
+#: matter whether they arrive via the web app or via Telegram.
+#: The webapp re-exports it (webapp/app.py: STORAGE_QUOTA_BYTES);
+#: the bot's Telegram intake checks it in archive.py. Files kept
+#: on Telegram's own servers never count towards it.
+STORAGE_QUOTA_BYTES = 9 * 1024 * 1024 * 1024
+
 
 def ict_now() -> datetime:
     return datetime.now(ICT)

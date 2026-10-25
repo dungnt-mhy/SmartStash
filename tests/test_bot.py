@@ -3279,5 +3279,229 @@ class ArchiveTestCase(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
+# ------------------------------------------------- TD-0025: direct to Drive
+class DirectToDriveTestCase(unittest.TestCase):
+    """Telegram intake under the 9GB quota: under quota files land
+    locally as before; over quota they go straight to Drive with no
+    local copy; a Drive failure keeps the local file and tells the
+    Admin. Fake Drive uploader + fake Telegram API — no network."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="direct-drive-test-")
+        self.files_dir = Path(self.tmp) / "files"
+        self.files_dir.mkdir()
+        self.store = Store(":memory:")
+        self.store.register_user(ADMIN, "admin", "Admin", ADMIN)
+        self.store.set_role(ADMIN, roles.ROLE_ADMIN, can_publish=True)
+        self.config_path = Path(self.tmp) / "drive_archive.json"
+        self.config_path.write_text(json.dumps(
+            {"folder_id": "root-test", "tasks": {}}), encoding="utf-8")
+        self.drive_files = {}
+        self.uploaded = []
+        self._old_quota = archive.STORAGE_QUOTA_BYTES
+        self._old_folder = archive.ensure_task_folder
+        # Under quota by default; single tests tighten it.
+        archive.STORAGE_QUOTA_BYTES = 10 ** 12
+        # Never touch the real Drive config/CLI in these tests.
+        archive.ensure_task_folder = (
+            lambda config_path, code, runner=None: "folder-test")
+
+    def tearDown(self):
+        archive.STORAGE_QUOTA_BYTES = self._old_quota
+        archive.ensure_task_folder = self._old_folder
+        self.store.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # ------------------------------------------------------------ fakes
+    def fake_uploader(self, local_path, folder_id, name):
+        data = Path(local_path).read_bytes()
+        file_id = f"drive-{name}"
+        self.drive_files[file_id] = data
+        self.uploaded.append((str(local_path), folder_id, name))
+        return file_id, f"https://drive.example/{name}"
+
+    def failing_uploader(self, local_path, folder_id, name):
+        raise archive.ArchiveError("Drive lỗi giả lập.")
+
+    class IntakeApi(FakeApi):
+        """Fake Telegram API that really 'downloads' known bytes."""
+
+        def __init__(self, blobs):
+            super().__init__()
+            self.blobs = blobs  # file_id -> (file_path, bytes)
+
+        def get_file(self, file_id):
+            path, data = self.blobs[file_id]
+            return {"file_path": path, "file_size": len(data)}
+
+        def download_file(self, file_path, destination):
+            for _fid, (path, data) in self.blobs.items():
+                if path == file_path:
+                    Path(destination).write_bytes(data)
+                    return
+            raise AssertionError(f"unknown file_path {file_path}")
+
+    def make_app(self, blobs, uploader=None):
+        api = self.IntakeApi(blobs)
+        app = BotApp(
+            self.store, api, files_dir=self.files_dir,
+            download_files=True,
+            drive_uploader=(self.fake_uploader if uploader is None
+                            else uploader))
+        return app, api
+
+    def create_task_via_intake(self, app, file_ids):
+        user = self.store.get_user(ADMIN)
+        return app._create_task(user, ADMIN, "Việc TD-0025", file_ids,
+                                confirmed=True)
+
+    def make_local_task(self, name="anh.jpg", content=b"anh-bytes"):
+        task = self.store.create_task(
+            ADMIN, roles.ROLE_ADMIN, "Việc lưu trữ", [],
+            ["website", "facebook"])
+        self.store.sync_outputs_for_task(task)
+        code = task["code"]
+        directory = self.files_dir / code
+        directory.mkdir(parents=True)
+        (directory / name).write_bytes(content)
+        return task, directory / name, content
+
+    # -------------------------------------------------- quota arithmetic
+    def test_would_exceed_quota_counts_tmp(self):
+        (self.files_dir / "a.txt").write_bytes(b"0123456789")
+        tmp = self.files_dir / ".tmp"
+        tmp.mkdir()
+        (tmp / "junk").write_bytes(b"01234")
+        # Usage is 15 bytes (10 local + 5 tmp).
+        self.assertFalse(
+            archive.would_exceed_quota(self.files_dir, 0, quota=15))
+        self.assertTrue(
+            archive.would_exceed_quota(self.files_dir, 1, quota=15))
+        self.assertTrue(
+            archive.would_exceed_quota(self.files_dir, 0, quota=14))
+
+    # -------------------------------------------------- direct_to_drive
+    def test_direct_to_drive_uploads_and_records(self):
+        task, path, content = self.make_local_task()
+        result = archive.direct_to_drive(
+            self.store, self.files_dir, task["code"], "anh.jpg",
+            path, len(content), uploader=self.fake_uploader,
+            config_path=self.config_path)
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(self.uploaded[0][2], "anh.jpg")
+        self.assertEqual(self.drive_files["drive-anh.jpg"], content)
+        rows = self.store.archived_files_for_task(task["code"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["drive_file_id"], "drive-anh.jpg")
+        self.assertTrue(rows[0]["web_view_link"].startswith(
+            "https://drive.example/"))
+        audits = [e for e in self.store.audit_entries("files_archived")]
+        self.assertEqual(len(audits), 1)
+        self.assertIn("direct_to_drive", audits[0]["detail"])
+        # direct_to_drive never deletes the local file itself.
+        self.assertTrue(path.is_file())
+
+    def test_direct_to_drive_failure_keeps_local_and_audits(self):
+        task, path, content = self.make_local_task()
+        result = archive.direct_to_drive(
+            self.store, self.files_dir, task["code"], "anh.jpg",
+            path, len(content), uploader=self.failing_uploader,
+            config_path=self.config_path)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(
+            self.store.archived_files_for_task(task["code"]), [])
+        audits = [e for e in
+                  self.store.audit_entries("files_archive_failed")]
+        self.assertEqual(len(audits), 1)
+        self.assertIn("direct_to_drive", audits[0]["detail"])
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.read_bytes(), content)
+
+    def test_direct_to_drive_idempotent(self):
+        task, path, content = self.make_local_task()
+        self.store.record_archived_file(
+            task["code"], "anh.jpg", "drive-anh.jpg",
+            "https://drive.example/anh.jpg", len(content))
+        result = archive.direct_to_drive(
+            self.store, self.files_dir, task["code"], "anh.jpg",
+            path, len(content), uploader=self.fake_uploader,
+            config_path=self.config_path)
+        self.assertEqual(result["status"], "done")
+        self.assertTrue(result.get("already"))
+        self.assertEqual(self.uploaded, [])
+
+    # -------------------------------------------------- intake via bot
+    def test_intake_under_quota_saves_local(self):
+        app, api = self.make_app(
+            {"tg-1": ("photos/file_1.jpg", b"local-bytes")})
+        task = self.create_task_via_intake(app, ["tg-1"])
+        local = self.files_dir / task["code"] / "file_1.jpg"
+        self.assertTrue(local.is_file())
+        self.assertEqual(local.read_bytes(), b"local-bytes")
+        self.assertEqual(self.uploaded, [])
+        self.assertEqual(
+            self.store.archived_files_for_task(task["code"]), [])
+
+    def test_intake_over_quota_goes_direct_to_drive(self):
+        archive.STORAGE_QUOTA_BYTES = 0  # every byte is over quota
+        app, api = self.make_app(
+            {"tg-1": ("photos/file_1.jpg", b"drive-bytes")})
+        task = self.create_task_via_intake(app, ["tg-1"])
+        code = task["code"]
+        self.assertFalse((self.files_dir / code / "file_1.jpg").exists())
+        self.assertEqual(len(self.uploaded), 1)
+        self.assertEqual(self.uploaded[0][2], "file_1.jpg")
+        self.assertEqual(self.drive_files["drive-file_1.jpg"],
+                         b"drive-bytes")
+        rows = self.store.archived_files_for_task(code)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["drive_file_id"], "drive-file_1.jpg")
+        self.assertTrue(rows[0]["web_view_link"].startswith(
+            "https://drive.example/"))
+        audits = [e for e in self.store.audit_entries("files_archived")]
+        self.assertEqual(len(audits), 1)
+        self.assertIn("direct_to_drive", audits[0]["detail"])
+        # No temp file left behind.
+        tmp_left = list((self.files_dir / ".tmp").iterdir()) \
+            if (self.files_dir / ".tmp").is_dir() else []
+        self.assertEqual(tmp_left, [])
+
+    def test_intake_over_quota_keeps_local_and_notifies_admin(self):
+        archive.STORAGE_QUOTA_BYTES = 0
+        app, api = self.make_app(
+            {"tg-1": ("photos/file_1.jpg", b"kept-bytes")},
+            uploader=self.failing_uploader)
+        task = self.create_task_via_intake(app, ["tg-1"])
+        local = self.files_dir / task["code"] / "file_1.jpg"
+        self.assertTrue(local.is_file())
+        self.assertEqual(local.read_bytes(), b"kept-bytes")
+        self.assertEqual(
+            self.store.archived_files_for_task(task["code"]), [])
+        audits = [e for e in
+                  self.store.audit_entries("files_archive_failed")]
+        self.assertEqual(len(audits), 1)
+        self.assertIn("direct_to_drive", audits[0]["detail"])
+        admin_texts = api.texts_to(ADMIN)
+        self.assertTrue(any("Không đẩy được file" in t
+                            and "file_1.jpg" in t for t in admin_texts),
+                        admin_texts)
+
+    def test_intake_download_failure_does_not_block_task(self):
+        class BrokenApi(self.IntakeApi):
+            def download_file(self, file_path, destination):
+                raise RuntimeError("mạng rớt giả lập")
+
+        api = BrokenApi({"tg-1": ("photos/file_1.jpg", b"x")})
+        app = BotApp(self.store, api, files_dir=self.files_dir,
+                     download_files=True,
+                     drive_uploader=self.fake_uploader)
+        task = self.create_task_via_intake(app, ["tg-1"])
+        self.assertIsNotNone(task)
+        self.assertEqual(json.loads(task["file_ids"]), ["tg-1"])
+        self.assertEqual(
+            list((self.files_dir / task["code"]).iterdir()), [])
+        self.assertEqual(self.uploaded, [])
+
+
 if __name__ == "__main__":
     unittest.main()

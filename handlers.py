@@ -8,6 +8,7 @@ grant them anything.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import archive  # noqa: E402  (TD-0024: auto-restore archived files)
@@ -26,6 +27,8 @@ from storage import (
     STATUS_RETRACTED,
     fb_key_to_legacy,
     fb_legacy_to_key,
+    format_ict,
+    ict_now,
 )
 
 STATUS_LABELS = {
@@ -342,11 +345,16 @@ def _parse_schedule_input(text: str):
 
 
 class BotApp:
-    def __init__(self, store, api, files_dir=None, download_files: bool = False):
+    def __init__(self, store, api, files_dir=None, download_files: bool = False,
+                 drive_uploader=None):
         self.store = store
         self.api = api
         self.files_dir = Path(files_dir) if files_dir else None
         self.download_files = download_files
+        # TD-0025 test injection: a fake Drive uploader for the
+        # direct-to-Drive path (production leaves it None, which
+        # means the real Drive CLI).
+        self.drive_uploader = drive_uploader
 
     # ------------------------------------------------------------ utilities
     def _send(self, chat_id, text, reply_markup=None):
@@ -665,6 +673,23 @@ class BotApp:
         # attach-output-draft) and again when it is submitted.
         return task
 
+    def _notify_admin_direct_to_drive_failed(self, task, name, error):
+        """TD-0025: a file that arrived while the quota was full
+        could not be pushed straight to Drive either — it stays
+        local (over quota for now); tell every Admin so the
+        failure is not silent."""
+        text = (
+            f"⚠️ Không đẩy được file {name} của việc {task['code']} "
+            f"lên Drive (kho đã đầy 9GB, lúc "
+            f"{format_ict(ict_now())}): {str(error).rstrip('.')}. "
+            "File đang giữ tạm trên máy chủ, lần quét sau sẽ lưu "
+            "trữ lại.")
+        for admin in self.store.admins():
+            try:
+                self._send(admin["chat_id"], text)
+            except Exception:
+                continue
+
     def _maybe_download_files(self, task):
         if not self.download_files or self.files_dir is None:
             return
@@ -673,17 +698,55 @@ class BotApp:
             return
         dest_dir = self.files_dir / task["code"]
         dest_dir.mkdir(parents=True, exist_ok=True)
+        # TD-0025: download to a temp file first (same .tmp tree the
+        # webapp's chunked uploads use, so it counts against the
+        # 9GB quota while it sits). The temp name never collides
+        # with a material file, and a file that goes straight to
+        # Drive never lands in the task dir at all.
+        tmp_dir = self.files_dir / ".tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
         for idx, file_id in enumerate(file_ids, start=1):
+            tmp_path = None
             try:
+                # Usage is measured BEFORE this file's bytes hit
+                # the disk, so the new file is not counted twice.
+                used = archive.storage_usage_bytes(self.files_dir)
                 info = self.api.get_file(file_id)
                 file_path = (info or {}).get("file_path")
                 if not file_path:
                     continue
                 name = Path(file_path).name or f"file-{idx}"
-                self.api.download_file(file_path, dest_dir / name)
+                tmp_path = tmp_dir / f"{task['code']}-{idx}.download"
+                self.api.download_file(file_path, tmp_path)
+                size = tmp_path.stat().st_size
+                if archive.would_exceed_quota(self.files_dir, size,
+                                              used=used):
+                    # Quota full: straight to Drive (TD-0025).
+                    result = archive.direct_to_drive(
+                        self.store, self.files_dir, task["code"], name,
+                        tmp_path, size,
+                        uploader=self.drive_uploader)
+                    if result["status"] == "done":
+                        tmp_path.unlink(missing_ok=True)
+                        tmp_path = None
+                    else:
+                        # Drive failed too: keep the file locally
+                        # (over quota for now) and tell the Admin.
+                        os.replace(tmp_path, dest_dir / name)
+                        tmp_path = None
+                        self._notify_admin_direct_to_drive_failed(
+                            task, name, result.get("error", ""))
+                else:
+                    os.replace(tmp_path, dest_dir / name)
+                    tmp_path = None
             except Exception:
                 # A failed download must never block task creation; the
                 # file_id stays stored on the task for a later retry.
+                if tmp_path is not None:
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                 continue
 
     # ------------------------------------------------------- task card bits
