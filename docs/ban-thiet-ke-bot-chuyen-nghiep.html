@@ -221,7 +221,7 @@
           </div>
           <div>
             <div class="layer-list">
-              <div class="layer"><span class="tag">setMyCommands</span><h4>Lớp 1 — Nút Menu (góc trái ô nhập)</h4><p>Mở danh sách lệnh của bot. Danh sách này <b>khác nhau theo từng người</b>: nhân viên chỉ thấy 4 lệnh cơ bản, admin thấy đủ 9 lệnh. Cài một lần lúc bot khởi động, cập nhật lại mỗi khi ai đó đổi vai trò.</p></div>
+              <div class="layer"><span class="tag">setMyCommands</span><h4>Lớp 1 — Nút Menu (góc trái ô nhập)</h4><p>Mở danh sách lệnh của bot. Danh sách này <b>khác nhau theo từng người</b>: nhân viên thấy 5 lệnh cơ bản, admin thấy đủ 10 lệnh (kể cả <code>/miniap</code> mở Mini App — TD-0020). Cài một lần lúc bot khởi động, cập nhật lại mỗi khi ai đó đổi vai trò.</p></div>
               <div class="layer"><span class="tag">ReplyKeyboardMarkup</span><h4>Lớp 2 — Bàn phím chính theo vai trò</h4><p>Hiện ngay khi bấm <code>/start</code> và ghim cố định dưới ô nhập liệu như một thanh điều hướng của ứng dụng. Mỗi vai trò một bộ nút riêng. Bấm nút = bot nhận một tin nhắn văn bản đúng nhãn nút đó.</p></div>
               <div class="layer"><span class="tag">InlineKeyboardMarkup</span><h4>Lớp 3 — Nút inline trên thẻ việc</h4><p>Nút Duyệt / Trả lại / Đăng từng kênh gắn ngay trên thẻ việc. Bấm xong bot <b>sửa luôn tin nhắn đó</b> (đổi trạng thái, đổi nút) chứ không gửi tin mới — cuộc trò chuyện luôn gọn, một việc = một thẻ.</p></div>
               <div class="layer"><span class="tag">SQLite</span><h4>Lớp 0 — Dữ liệu nằm ở máy chủ bot</h4><p>Menu và nút bấm chỉ là lớp hiển thị. Mọi thao tác đều được kiểm tra quyền lại ở phía bot theo vai trò lưu trong SQLite — ẩn nút không bao giờ là cơ chế bảo mật duy nhất.</p></div>
@@ -233,10 +233,10 @@
 
       <section id="menu">
         <div class="sec-head"><span class="sec-num">02</span><h2>Nút Menu bên trái: cơ chế và bộ lệnh theo vai</h2></div>
-        <p class="sec-sub">Nút Menu gồm <b>hai phần cài độc lập</b>: nội dung danh sách lệnh (qua <code>setMyCommands</code>) và hành vi của nút (qua <code>setChatMenuButton</code>). Nút có 3 kiểu: mở danh sách lệnh (<code>commands</code>) — kiểu mặc định và là kiểu nên dùng; mở một Mini App (<code>web_app</code>) — để dành cho giai đoạn 4; và <code>default</code> — trả về mặc định toàn cục.</p>
+        <p class="sec-sub">Nút Menu gồm <b>hai phần cài độc lập</b>: nội dung danh sách lệnh (qua <code>setMyCommands</code>) và hành vi của nút (qua <code>setChatMenuButton</code>). Nút có 3 kiểu: mở danh sách lệnh (<code>commands</code>) — kiểu mặc định và là kiểu nên dùng; mở một Mini App (<code>web_app</code>) — đang dùng thật cho Mini App Giao Việc (TD-0020, mục 07); và <code>default</code> — trả về mặc định toàn cục.</p>
 
         <h3>Bộ lệnh đề xuất cho từng vai trò</h3>
-        <p>Giới hạn của Telegram: tối đa <b>100 lệnh</b>, tên lệnh 1–32 ký tự chỉ gồm chữ thường/dấu gạch dưới, mô tả 1–256 ký tự. 100 là trần kỹ thuật, không phải mục tiêu — menu dài quá 8 lệnh là người dùng không tìm thấy gì. Thiết kế giữ 4–9 lệnh mỗi vai:</p>
+        <p>Giới hạn của Telegram: tối đa <b>100 lệnh</b>, tên lệnh 1–32 ký tự chỉ gồm chữ thường/dấu gạch dưới, mô tả 1–256 ký tự. 100 là trần kỹ thuật, không phải mục tiêu — menu dài quá 8 lệnh là người dùng không tìm thấy gì. Thiết kế giữ 4–10 lệnh mỗi vai:</p>
         <div class="tbl-wrap"><table>
           <thead><tr><th>Lệnh</th><th>Mô tả hiển thị trong Menu</th><th class="num">CTV</th><th class="num">Nhân viên</th><th class="num">B.Tập viên</th><th class="num">Phó Admin</th><th class="num">Admin</th></tr></thead>
           <tbody>
@@ -248,6 +248,7 @@
             <tr><td><code>/stats</code></td><td>Thống kê: hôm nay / tuần / tháng</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td><td class="num">✓</td></tr>
             <tr><td><code>/export</code></td><td>Xuất báo cáo Excel / CSV</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td></tr>
             <tr><td><code>/team</code></td><td>Quản lý nhân sự: cấp / thu hồi quyền</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">✓</td></tr>
+            <tr><td><code>/miniap</code></td><td>Mở Mini App Giao Việc trong Telegram (TD-0020)</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
             <tr><td><code>/help</code></td><td>Hướng dẫn sử dụng bot</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td><td class="num">✓</td></tr>
           </tbody>
         </table></div>
@@ -257,7 +258,7 @@
         <p>Telegram không có khái niệm "scope theo vai trò". Cơ chế dùng được là <b>phạm vi lệnh theo từng cuộc trò chuyện</b> (<code>BotCommandScopeChat</code>): đặt bộ lệnh nền cho mọi chat riêng (<code>AllPrivateChats</code>), rồi ghi đè bộ dài hơn cho chat riêng của từng biên tập viên và admin (trong chat riêng, mã chat trùng mã người dùng). Mỗi khi ai đổi vai trong cơ sở dữ liệu, bot gọi lại <code>setMyCommands</code> cho đúng người đó. Trong nhóm đội, lệnh chỉ dành cho quản trị nhóm dùng phạm vi <code>ChatAdministrators</code> hoặc chỉ định từng người bằng <code>ChatMember</code>.</p>
         <div class="codeblock"><button class="copybtn" type="button" data-copy="code-commands">Sao chép</button><pre id="code-commands"># Cài lúc bot khởi động — và gọi lại cho 1 người mỗi khi họ đổi vai trò
 BASE = [("start","Mở màn hình chính"), ("new","Giao việc mới — gửi ảnh kèm gợi ý"),
-        ("my","Các việc của tôi"), ("help","Hướng dẫn sử dụng")]
+        ("my","Các việc của tôi"), ("miniap","Mở Mini App"), ("help","Hướng dẫn sử dụng")]
 EDITOR = BASE + [("pending","Hàng chờ duyệt"), ("review","Duyệt việc đang chờ")]
 ADMIN  = EDITOR + [("stats","Thống kê"), ("export","Xuất báo cáo Excel/CSV"),
                    ("team","Quản lý nhân sự: cấp / thu hồi quyền")]
@@ -265,7 +266,12 @@ ADMIN  = EDITOR + [("stats","Thống kê"), ("export","Xuất báo cáo Excel/CS
 api("setMyCommands", commands=BASE,   scope={"type":"all_private_chats"})
 api("setMyCommands", commands=EDITOR, scope={"type":"chat","chat_id":editor_id})
 api("setMyCommands", commands=ADMIN,  scope={"type":"chat","chat_id":admin_id})
-api("setChatMenuButton", menu_button={"type":"commands"})  # ghim hành vi nút Menu</pre></div>
+api("setChatMenuButton", menu_button={"type":"commands"})  # ghim hành vi nút Menu
+# LƯU Ý (TD-0020, đã kiểm chứng sống với Bot API 10.3): setChatMenuButton
+# KHÔNG có tham số scope (chỉ setMyCommands mới có) — muốn gán nút theo
+# từng chat thì truyền chat_id; truyền scope sẽ bị Telegram lờ đi và
+# nút bị đặt nhầm lên nút MẶC ĐỊNH chung. Không có deleteChatMenuButton:
+# thu hồi thì reset bằng setChatMenuButton {"type": "default"}. Xem mục 07.</pre></div>
         <div class="callout warn"><b>Cảnh báo bảo mật từ chính tài liệu Telegram</b>Phạm vi lệnh chỉ là lớp trình bày, không phải phân quyền: bot không hề biết người dùng đã gõ lệnh từ menu nào, và người dùng có thể gõ bất kỳ lệnh nào tay không. Mọi lệnh — và mọi lần bấm nút — đều phải kiểm tra lại vai trò ở phía máy chủ bot. Menu khác nhau theo vai chỉ giúp giao diện gọn và đúng người, không thay thế kiểm tra quyền.</div>
         <p><b>Đa ngôn ngữ:</b> <code>setMyCommands</code> nhận thêm mã ngôn ngữ ISO 639-1 (<code>language_code</code>) để dịch phần mô tả theo ngôn ngữ ứng dụng của từng người; tên lệnh vẫn giữ nguyên chữ Latin. Đội dùng tiếng Việt là chính nên thiết kế để mô tả mặc định bằng tiếng Việt, và cơ chế này sẵn sàng nếu sau này cần thêm tiếng Anh.</p>
       </section>
@@ -372,7 +378,7 @@ noop           Nút chỉ hiển thị (ví dụ "2/5")</pre></div>
           <li><b>Tỷ lệ video nháp được duyệt / bị trả lại</b> — đo chất lượng bản dựng đầu và mức phải làm lại.</li>
           <li><b>Số việc "kép":</b> việc cho ra đồng thời bài viết và video — chỉ số cho thấy tư liệu gốc đang được tận dụng tới đâu.</li>
         </ul>
-        <div class="callout info"><b>Khi nào mới cần lên Mini App?</b>Khi admin cần lọc tự do (theo người × trạng thái × khoảng ngày), sắp xếp bảng, hoặc duyệt/đăng hàng loạt. Trước mốc đó, <code>/stats</code> dạng chữ + biểu đồ PNG + file Excel đã phủ gần hết nhu cầu — chi tiết ở mục 07.</div>
+        <div class="callout info"><b>Khi nào mới cần lên Mini App?</b>Khi admin cần lọc tự do (theo người × trạng thái × khoảng ngày), sắp xếp bảng, hoặc duyệt/đăng hàng loạt. Mốc đó đã tới ngày 25/10/2026 (TD-0020): Mini App đã chạy thật tại <code>https://post.iaict-platform.com/miniap/</code> — không phải bảng điều khiển riêng admin mà là toàn bộ Web App chạy trong Telegram (xem mục 07). <code>/stats</code> dạng chữ + biểu đồ PNG + file Excel vẫn là đường xem nhanh trong chat.</div>
       </section>
 
       <section id="video">
@@ -429,13 +435,17 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
       </section>
 
       <section id="miniapp">
-        <div class="sec-head"><span class="sec-num">07</span><h2>Mini App: bảng điều khiển cho admin — giai đoạn 4</h2></div>
-        <p class="sec-sub">Mini App là một trang web HTML5 chạy ngay trong Telegram. Nó là hạng mục duy nhất trong bản thiết kế này <b>phát sinh hạ tầng mới</b>: tên miền + HTTPS công khai + một máy chủ web + giao diện web riêng — trong khi bot hiện tại chạy long polling không cần gì cả. Vì vậy lộ trình đúng là: làm native thật tốt trước, Mini App chỉ làm một bảng điều khiển dành riêng admin khi thống kê dạng chat không còn đủ.</p>
+        <div class="sec-head"><span class="sec-num">07</span><h2>Mini App: bề mặt thêm trên cùng Web App — đã triển khai (TD-0020, 25/10/2026)</h2></div>
+        <p class="sec-sub">Mini App là một trang web HTML5 chạy ngay trong Telegram. Từ ngày 25/10/2026 nó đã chạy thật — <b>không phải bảng điều khiển riêng admin mà là toàn bộ Web App</b> (cùng shell PWA, cùng backend, cùng <code>bot.db</code>) mở tại <code>https://post.iaict-platform.com/miniap/</code>. Bot Telegram và Web App PWA giữ nguyên toàn bộ; Mini App là bề mặt <b>thêm</b>, không thay thế bên nào, và đội <b>không chuyển hẳn sang Web App</b> (GĐ4 vẫn tạm dừng theo quyết định "Không chuyển nhé" ngày 24/10/2026).</p>
         <div class="grid2">
           <div>
             <h3 style="margin-top:6px">Điểm mở Mini App cho đúng người</h3>
             <ul class="tight">
-              <li><b>Nút Menu riêng cho admin:</b> gọi <code>setChatMenuButton</code> với <code>chat_id</code> của admin và kiểu <code>web_app</code> (nhãn "Dashboard") — admin mở bot thấy nút mở bảng điều khiển, mọi người khác vẫn thấy nút mở danh sách lệnh.</li>
+              <li><b>Nút Menu "Mở Mini App":</b> gọi <code>setChatMenuButton</code> với <code>chat_id</code> của từng người đã có vai trò và kiểu <code>web_app</code> (nhãn "Mở Mini App", mở <code>https://post.iaict-platform.com/miniap/</code>) — người có vai trò mở bot thấy nút mở Mini App, người chưa có vai trò vẫn thấy nút mở danh sách lệnh. Bot đồng bộ lại nút khi khởi động, khi người đó gõ <code>/start</code>, và mỗi lần cấp/thu hồi quyền.</li>
+              <li><b>Lệnh <code>/miniap</code>:</b> có trong menu lệnh của mọi vai trò; gõ lệnh thì bot gửi nút inline "📱 Mở Mini App" mở đúng URL trên. Người chưa có vai trò bấm vào thì bị từ chối lịch sự (Mini App tự từ chối đăng nhập, không lộ dữ liệu).</li>
+              <li><b>Thu hồi quyền thì reset nút về mặc định:</b> gọi <code>setChatMenuButton</code> với <code>{"type": "default"}</code>. <b>Bot API hiện tại KHÔNG có <code>deleteChatMenuButton</code></b> (đối chiếu tài liệu chính thức Bot API 10.3: chỉ còn set/getChatMenuButton; gọi phương thức đã bỏ trả HTTP 404).</li>
+              <li><b><code>setChatMenuButton</code> KHÔNG có tham số <code>scope</code></b> (tham số đó chỉ thuộc <code>setMyCommands</code>) — muốn gán nút theo từng chat thì truyền <code>chat_id</code>. Bản đầu truyền <code>scope</code> nên Telegram lờ đi và đặt nhầm nút WebApp lên nút <b>mặc định chung</b> (mọi người dùng kể cả khách lạ đều thấy), còn chat Admin vẫn ở <code>default</code>. Kiểm chứng sống sau sửa: chat Admin → <code>web_app</code> "Mở Mini App", nút mặc định → <code>commands</code>.</li>
+              <li><b>Độ trễ lan truyền:</b> thay đổi nút mặc định lan chậm (~2 phút mới đọc lại được giá trị mới), thay đổi theo từng chat thì gần như tức thì.</li>
               <li>Các điểm mở khác: nút inline, nút bàn phím (chỉ trong chat riêng), link trực tiếp <code>t.me/&lt;bot&gt;?startapp=…</code>, trang hồ sơ bot.</li>
               <li>Thiết kế mobile-first, bám biến màu chủ đề của Telegram (<code>themeParams</code>) để khớp sáng/tối, dùng nút Back và nút chính của khung Mini App cho hành động quan trọng.</li>
             </ul>
@@ -448,6 +458,8 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
               <li>Khoá bí mật = HMAC-SHA256 với khoá là chuỗi <code>"WebAppData"</code> và dữ liệu là token bot.</li>
               <li>Hợp lệ khi HMAC-SHA256 của chuỗi kiểm tra (theo khoá bí mật trên) bằng đúng <code>hash</code> nhận được — so sánh theo thời gian hằng định.</li>
               <li>Kiểm thêm <code>auth_date</code> còn tươi để chống phát lại gói dữ liệu cũ; sau khi xác thực mới lấy <code>user.id</code> tra vai trò trong SQLite — danh tính Telegram đã xác thực vẫn không tự nó là quyền admin.</li>
+              <li><b>Lưu ý (TD-0021, sửa 25/10/2026):</b> trường <code>signature</code> vẫn nằm trong chuỗi kiểm chứng HMAC — nó chỉ bị loại ở đường kiểm chứng Ed25519 bên thứ ba (chuỗi kiểm chứng khác, có tiền tố <code>bot_id:WebAppData</code>). Bản đầu loại cả <code>signature</code> khỏi chuỗi HMAC nên mọi lần đăng nhập Mini App thật đều bị từ chối (initData thật luôn có <code>signature</code>), trong khi dữ liệu thử không có trường này nên vẫn đậu.</li>
+              <li><b>Token bot thật</b> không lấy được từ kết nối bot (bot chỉ giữ surrogate <code>hsurr:</code>, không kiểm chứng được HMAC) — máy chủ Mini App đọc <code>TELEGRAM_BOT_TOKEN</code> từ file cấu hình riêng của dịch vụ webapp (mode 600). Chưa có token thì endpoint trả 503 "Mini App chưa được cấu hình".</li>
             </ul>
           </div>
         </div>
@@ -548,13 +560,14 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
             </ul>
           </div>
           <div class="card" style="margin:0">
-            <h4 style="margin:0 0 4px">Giai đoạn 4 — Mini App cho admin</h4>
-            <p class="kbd-note" style="margin:0 0 6px">Chỉ khi có nhu cầu lọc / xử lý hàng loạt</p>
+            <h4 style="margin:0 0 4px">Giai đoạn 4 — Mini App ✅ PHẦN MINI APP ĐÃ XONG (TD-0020, 25/10/2026); chuyển đội vẫn TẠM DỪNG</h4>
+            <p class="kbd-note" style="margin:0 0 6px">Mini App đã chạy thật; chuyển đội sang Web App vẫn tạm dừng theo quyết định 24/10/2026</p>
             <ul class="checklist">
-              <li>Tên miền + HTTPS + máy chủ web riêng cho dashboard</li>
-              <li>Xác thực <code>initData</code> bằng HMAC trên mọi yêu cầu</li>
-              <li>Bảng việc lọc theo người × trạng thái × ngày, duyệt/đăng hàng loạt</li>
-              <li>Nút Menu kiểu <code>web_app</code> gán riêng cho admin</li>
+              <li class="done">Tên miền + HTTPS + máy chủ web riêng: <code>https://post.iaict-platform.com/miniap/</code> (qua Cloudflare Tunnel, xem SRS Web App)</li>
+              <li class="done">Xác thực <code>initData</code> bằng HMAC trên mọi yêu cầu (xem mục 07; sửa lỗi <code>signature</code> ở TD-0021)</li>
+              <li class="done">Toàn bộ Web App trong Telegram (lọc theo người × trạng thái × ngày, duyệt/đăng trên thẻ kênh) — không phải chỉ bảng điều khiển riêng admin</li>
+              <li class="done">Nút Menu kiểu <code>web_app</code> "Mở Mini App" gán theo từng chat của người có vai trò + lệnh <code>/miniap</code></li>
+              <li>Chuyển đội sang Web App + tắt dần bot — <b>TẠM DỪNG</b> theo quyết định của chủ dự án 24/10/2026 ("Không chuyển nhé"); bot giữ nguyên toàn bộ</li>
             </ul>
           </div>
         </div>
@@ -570,7 +583,7 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
           <li><b>Kênh gửi việc chính:</b> chat riêng 1–1 (khuyến nghị, không phải đổi cài đặt nào) hay thêm nhóm chung — nếu thêm nhóm thì chọn cách B (bot làm quản trị) hay cách C (tắt chế độ riêng tư) ở mục 09.</li>
           <li><b>Ai được xem thống kê:</b> Admin + Phó Admin như bảng lệnh ở mục 02, hay mở thêm cho Biên tập viên.</li>
           <li><b>Video mở đầu ra nào trước:</b> dọc 9:16 (TikTok / Shorts / Reels) hay ngang 16:9 (YouTube) — và ở giai đoạn 3, kết nối đăng nền tảng nào trước.</li>
-          <li><b>Mini App:</b> để giai đoạn 4 như lộ trình, hay làm ngay từ đầu (chấp nhận thêm chi phí tên miền/hosting và thời gian làm giao diện web).</li>
+          <li><b>Mini App:</b> <b>ĐÃ CHỐT 25/10/2026</b> — làm ngay dưới dạng bề mặt thêm (TD-0020): toàn bộ Web App chạy trong Telegram tại <code>/miniap/</code>, bot và PWA giữ nguyên, KHÔNG chuyển đội (GĐ4 vẫn tạm dừng).</li>
         </ul>
       </section>
 
@@ -606,9 +619,10 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
           <div class="card" style="margin:0">
             <h4 style="margin:0 0 4px">Luồng Đăng một chạm &amp; đóng băng thẻ cũ</h4>
             <ul class="checklist">
-              <li class="done">Nút 🚀 Đăng <b>chỉ là lệnh đăng</b> (ghi nhận + 1 tin "⏳ Đã nhận lệnh đăng"), không tự lật trạng thái; Muse đăng thật qua trình duyệt rồi hoàn tất bằng <code>set-output-published</code> → đúng 1 thông báo <b>"✅ Đã đăng thành công"</b> kèm link bài trên thẻ kênh</li>
+              <li class="done">Nút 🚀 Đăng <b>chỉ là lệnh đăng</b> (ghi nhận + 1 tin "⏳ Đã nhận lệnh đăng"), không tự lật trạng thái; Muse đăng thật qua trình duyệt rồi hoàn tất bằng <code>set-output-published</code> (theo từng nơi: <code>--place</code>) → đúng 1 thông báo <b>"✅ Đã đăng thành công"</b> kèm link bài trên thẻ kênh; trạng thái chỉ lật PUBLISHED khi <b>TẤT CẢ</b> nơi trong tập hợp đều đăng xong (TD-0013); nơi đăng lỗi ghi bằng <code>set-output-place-failed</code>, đăng lại chỉ đăng tiếp nơi chưa xong (TD-0013)</li>
               <li class="done"><b>Admin làm việc của mình thì bỏ qua Gửi duyệt/Duyệt</b> — thẻ kênh có nháp hiện thẳng 🚀 Đăng; người duyệt tự duyệt việc của mình thì bot không gửi thêm thẻ thông báo (thẻ đang bấm tự cập nhật tại chỗ)</li>
-              <li class="done">Chốt <b>nơi đăng Facebook ngay trong Telegram</b>: bấm Đăng ở kênh Facebook → chọn 👤 Trang cá nhân hay 📄 Fanpage Minhy → mới ghi lệnh đăng kèm target</li>
+              <li class="done">Chốt <b>nơi đăng Facebook ngay trong Telegram — đăng NHIỀU nơi cùng lúc</b> (TD-0013): bấm Đăng ở kênh Facebook → màn chọn nơi đăng bật/tắt từng nơi (đang chọn ✅, bỏ chọn ❌, đã đăng xong hiện "đã đăng", đang chờ đăng hiện "⏳ · đang chờ đăng" và khóa); mặc định chọn sẵn mọi nơi chưa đăng; nút xác nhận "🚀 Đăng lên N nơi", bắt buộc chọn ít nhất 1 nơi; nơi đăng lấy từ dữ liệu (trang cá nhân + bảng <code>facebook_pages</code> — hiện chỉ Fanpage Minhy 61595515900524; thêm Fanpage = thêm dòng vào bảng)</li>
+              <li class="done"><b>Khóa nơi đang chờ đăng</b> (TD-0015): tập khóa = nơi đã đăng xong ∪ (tập lệnh đang chờ − nơi đã đăng − nơi đăng lỗi); nơi đăng lỗi không bị khóa để đăng lại được; lịch đang chờ giờ KHÔNG khóa (để sửa lịch được); hủy lệnh đăng dọn tập lệnh đã hủy để không khóa oan. Link kiểu cũ: đầu ra PUBLISHED/RETRACTED chỉ có <code>public_url</code> mà không có target ở cột thì suy nơi đăng từ audit <code>publish_requested</code> gần nhất, không suy được thì hiện chung "Facebook" (khóa <code>legacy</code>, chỉ để hiển thị, không bao giờ lọt vào danh sách chọn)</li>
               <li class="done"><b>Thẻ kênh mới đóng băng thẻ cũ:</b> bot ghi nhớ mọi thẻ kênh đã gửi (bảng <code>output_cards</code>); thẻ mới của cùng đầu ra tự sửa các thẻ cũ trong cuộc trò chuyện về trạng thái hiện tại và gỡ toàn bộ nút — chỉ thẻ mới nhất còn thao tác được</li>
             </ul>
           </div>
@@ -641,8 +655,51 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
         </div>
       </section>
 
+      <section id="td-appendix">
+        <div class="sec-head"><span class="sec-num">13</span><h2>Phụ lục — Đăng Facebook nhiều nơi, khóa nơi chờ, thông báo web + Web Push qua botctl, Mini App (TD-0013 / TD-0015 / TD-0017 / TD-0020)</h2></div>
+        <p class="kbd-note">Hoàn thiện ngày 25/10/2026 (TD-0013 ngày 24/10, TD-0015 và TD-0017 ngày 24/10, TD-0020 ngày 25/10); kiểm thử bot 256/256 và đang chạy trên bot thật. Các mục dưới đây chỉ ghi hành vi phía bot; phần giao diện Web App và API xem SRS 1.5 của Web App.</p>
+        <div class="grid2">
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Đăng Facebook nhiều nơi cùng lúc (TD-0013, bản 0.5.0)</h4>
+            <ul class="checklist">
+              <li class="done">Một đầu ra Facebook mang một <b>tập hợp nơi đăng</b>; khóa nơi: <code>profile</code> (trang cá nhân Nguyễn Trọng Minh Huy, cố định) và <code>page_&lt;fb_page_id&gt;</code> (mỗi Fanpage một khóa). Danh sách nơi đăng lấy từ dữ liệu — trang cá nhân + bảng <code>facebook_pages</code> (hiện chỉ Fanpage Minhy 61595515900524); thêm Fanpage = <code>INSERT INTO facebook_pages</code> (chưa có màn hình quản lý Fanpage)</li>
+              <li class="done"><code>outputs</code> thêm 6 cột JSON (cộng thêm, không phá dữ liệu cũ): <code>publish_targets</code> (tập hợp của lệnh đăng/lịch gần nhất), <code>fb_target_set</code> (tập hợp đầy đủ, đóng băng khi đã có nơi đăng xong), <code>fb_place_urls</code> (link từng nơi), <code>fb_place_failed</code> (nơi đăng lỗi), <code>fb_place_retracted</code> (nơi đã xoá khi thu hồi), <code>fb_pending_targets</code> (lựa chọn đang bật/tắt dở trên bot). Target đơn cũ (<code>publish_target</code>) được hiểu như danh sách 1 phần tử</li>
+              <li class="done">Màn chọn nơi đăng trên bot: nút bật/tắt từng nơi (đang chọn ✅, bỏ chọn ❌, đã đăng xong "đã đăng", đang chờ đăng "⏳ · đang chờ đăng" và khóa); mặc định chọn sẵn mọi nơi chưa đăng; nút xác nhận "🚀 Đăng lên N nơi" (đặt lịch: "🕐 Đặt lịch N nơi"); bắt buộc chọn ít nhất 1 nơi mới cho xác nhận; nút "🗑 Hủy đăng" giữ nguyên</li>
+              <li class="done">Đăng lần lượt từng nơi đã chọn (giữ nguyên đường đăng trình duyệt của Muse); ghi link theo từng nơi (<code>botctl set-output-published --place</code>); chỉ lật PUBLISHED khi TẤT CẢ nơi trong tập hợp đều đăng xong; nơi lỗi ghi bằng <code>botctl set-output-place-failed</code> và báo rõ từng nơi thành công/thất bại, đầu ra ở lại chờ đăng với link nơi đã xong được giữ lại; đăng lại chỉ đăng tiếp nơi chưa xong, không đăng trùng nơi đã xong</li>
+              <li class="done">Thu hồi: xóa thật ở TẤT CẢ nơi đã đăng thành công, kiểm chứng từng nơi biến mất rồi mới lật RETRACTED (<code>botctl set-output-retracted --place</code> từng nơi); lịch đăng Facebook lưu cả tập hợp nơi đăng, đến giờ phát lệnh với đúng tập hợp đó; đăng ngay hủy lịch như cũ</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Khóa nơi đang chờ + link kiểu cũ (TD-0015, bản 0.5.2)</h4>
+            <ul class="checklist">
+              <li class="done">Tập khóa = nơi đã đăng xong ∪ (tập lệnh đang chờ − nơi đã đăng − nơi đăng lỗi); nơi đang chờ hiện disabled "· đang chờ đăng", nơi lỗi vẫn chọn được để đăng lại. Áp cho màn chọn của bot (cả Đăng ngay lẫn Đặt lịch)</li>
+              <li class="done">Phân biệt lịch chờ giờ (còn <code>scheduled_at</code> → không khóa, để sửa lịch được) với lệnh đăng đang chạy (không còn lịch → khóa). Hủy đăng dọn <code>publish_targets</code> để lệnh đã hủy không khóa oan vĩnh viễn</li>
+              <li class="done">Link kiểu cũ: đầu ra PUBLISHED/RETRACTED có <code>public_url</code> nhưng <code>publish_target</code> NULL thì suy nơi đăng từ audit <code>publish_requested</code> gần nhất; không có target trong audit thì dùng khóa <code>legacy</code> hiển thị "Facebook" — chỉ để hiển thị, không lọt vào danh sách chọn của modal</li>
+              <li><b>Hạn chế đã biết (chưa sửa):</b> đặt lịch trong lúc đang có lệnh đăng chờ sẽ ghi đè <code>publish_targets</code> và làm hỏng khóa — tránh thao tác chồng nhau cho tới khi sửa tận gốc</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">botctl đăng/thu hồi cũng báo ra Web App: hàng inbox + Web Push (TD-0015 / TD-0017)</h4>
+            <ul class="checklist">
+              <li class="done"><code>botctl set-output-published</code> (kể cả <code>--place</code>), <code>set-output-place-failed</code>, <code>set-output-retracted</code> (kể cả <code>--place</code>) đồng thời ghi hàng <code>web_notification_items</code> (INSERT OR IGNORE, khóa <code>published:</code>/<code>publish_failed:</code>/<code>retracted:</code> + id đầu ra + id audit) kèm link từng nơi; hàng này là global — mọi người dùng web đều thấy, như dòng tổng kết ngày</li>
+              <li class="done">Sau khi ghi hàng, botctl gửi kèm <b>Web Push tới MỌI subscription</b> trong <code>web_push_subscriptions</code> (payload <code>{title, body, url}</code> với <code>url = /?task=&lt;mã việc&gt;</code>); tái dùng <code>send_to_subscription</code> của <code>webapp/push.py</code> (import có guard, lỗi chỉ cảnh báo); <b>không tự tạo <code>vapid.json</code></b> nếu thiếu — tạo khóa mới sẽ hỏng mọi subscription cũ, thiếu file thì cảnh báo + bỏ qua push</li>
+              <li class="done"><code>--no-notify</code> tắt cả ba: thông báo Telegram, hàng web và push; thiếu token Telegram không chặn push web; lỗi gửi push chỉ cảnh báo stderr, không làm hỏng exit code hay luồng chính; không có subscription thì gửi 0 cái, không lỗi; log chỉ đếm đã gửi/lỗi/hết hạn, không in endpoint, khóa hay payload</li>
+            </ul>
+          </div>
+          <div class="card" style="margin:0">
+            <h4 style="margin:0 0 4px">Mini App phía bot (TD-0020, bản 0.5.7) + 2 sự thật Bot API đã kiểm chứng</h4>
+            <ul class="checklist">
+              <li class="done">Nút Menu "Mở Mini App" (WebApp → <code>https://post.iaict-platform.com/miniap/</code>) đặt theo từng chat của người đã có vai trò; đồng bộ lại khi khởi động, khi gõ <code>/start</code>, và mỗi lần cấp/thu hồi quyền; lệnh <code>/miniap</code> gửi nút inline mở Mini App, từ chối lịch sự người chưa có vai trò</li>
+              <li class="done">Bot API hiện tại <b>KHÔNG có <code>deleteChatMenuButton</code></b> — thu hồi quyền thì reset bằng <code>setChatMenuButton</code> với <code>{"type": "default"}</code> (gọi phương thức đã bỏ trả HTTP 404)</li>
+              <li class="done"><code>setChatMenuButton</code> <b>KHÔNG có tham số <code>scope</code></b> (chỉ <code>setMyCommands</code> mới có) — truyền <code>chat_id</code>; truyền <code>scope</code> sẽ bị Telegram lờ đi và đặt nhầm nút lên nút mặc định chung</li>
+              <li class="done">Độ trễ lan truyền: nút mặc định ~2 phút, nút theo chat gần như tức thì. Kiểm chứng sống: chat Admin → <code>web_app</code> "Mở Mini App", nút mặc định → <code>commands</code>. Xác thực initData phía máy chủ xem mục 07</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section id="sources">
-        <div class="sec-head"><span class="sec-num">13</span><h2>Nguồn đối chiếu</h2></div>
+        <div class="sec-head"><span class="sec-num">14</span><h2>Nguồn đối chiếu</h2></div>
         <p class="sec-sub">Toàn bộ cơ chế và con số trong bản thiết kế lấy từ tài liệu chính thức của Telegram (đọc ngày 22–23/10/2026), hai nguồn phụ được ghi rõ khi dùng.</p>
         <ul class="src-list">
           <li>Telegram Bot API — tài liệu tham chiếu chính thức (phiên bản 10.3): <a href="https://core.telegram.org/bots/api">https://core.telegram.org/bots/api</a></li>
@@ -686,23 +743,23 @@ vp:123:d     Đăng video dọc đã duyệt</pre></div>
 
         var ROLES = {
           admin: { name:'Admin', review:true, publish:true,
-            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/stats','Thống kê'],['/export','Xuất báo cáo Excel / CSV'],['/team','Quản lý nhân sự: cấp / thu hồi quyền'],['/help','Hướng dẫn sử dụng']],
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/stats','Thống kê'],['/export','Xuất báo cáo Excel / CSV'],['/team','Quản lý nhân sự: cấp / thu hồi quyền'],['/miniap','Mở Mini App'],['/help','Hướng dẫn sử dụng']],
             kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['✅ Hàng chờ duyệt','📊 Thống kê'],['👥 Nhân sự','❓ Trợ giúp']],
             hello:'Chào <b>Admin</b> — bạn có toàn quyền: duyệt bài, bấm đăng cả 3 kênh (Website · Facebook · Instagram), xem thống kê và quản lý nhân sự. Bàn phím và Menu bên dưới là bộ đầy đủ nhất của bot.' },
           deputy: { name:'Phó Admin', review:true, publish:false,
-            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/stats','Thống kê'],['/help','Hướng dẫn sử dụng']],
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/stats','Thống kê'],['/miniap','Mở Mini App'],['/help','Hướng dẫn sử dụng']],
             kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['✅ Hàng chờ duyệt','📊 Thống kê'],['❓ Trợ giúp']],
             hello:'Chào <b>Phó Admin</b> — bạn tạo và duyệt được nội dung, xem được thống kê. Khâu đăng public do Admin chốt cuối, nên thẻ đã duyệt của bạn sẽ hiện trạng thái chờ đăng.' },
           editor: { name:'Biên tập viên', review:true, publish:false,
-            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/help','Hướng dẫn sử dụng']],
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/pending','Hàng chờ duyệt'],['/review','Duyệt việc đang chờ'],['/miniap','Mở Mini App'],['/help','Hướng dẫn sử dụng']],
             kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['✅ Hàng chờ duyệt','❓ Trợ giúp']],
             hello:'Chào <b>Biên tập viên</b> — việc của bạn là sửa bài, duyệt nội dung hoặc trả lại kèm lý do. Menu của bạn không có Thống kê và Nhân sự — đúng phạm vi vai trò.' },
           staff: { name:'Nhân viên', review:false, publish:false,
-            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/help','Hướng dẫn sử dụng']],
+            cmds:[['/start','Mở màn hình chính'],['/new','Giao việc mới — gửi ảnh kèm gợi ý'],['/my','Các việc của tôi'],['/miniap','Mở Mini App'],['/help','Hướng dẫn sử dụng']],
             kb:[['📥 Giao việc mới','🗂 Việc của tôi'],['❓ Trợ giúp']],
             hello:'Chào <b>Nhân viên</b> — bạn chỉ cần gửi ảnh kèm một dòng gợi ý là tạo xong việc; bài của bạn sẽ vào hàng chờ duyệt. Giao diện gọn đúng 4 lệnh, không có nút duyệt hay thống kê.' },
           contributor: { name:'Cộng tác viên', review:false, publish:false,
-            cmds:[['/start','Mở màn hình chính'],['/new','Gửi tư liệu — ảnh kèm gợi ý'],['/help','Hướng dẫn sử dụng']],
+            cmds:[['/start','Mở màn hình chính'],['/new','Gửi tư liệu — ảnh kèm gợi ý'],['/miniap','Mở Mini App'],['/help','Hướng dẫn sử dụng']],
             kb:[['📤 Gửi tư liệu','❓ Trợ giúp']],
             hello:'Chào <b>Cộng tác viên</b> — bạn chỉ gửi ảnh / tư liệu cho đội làm bài, không duyệt và không đăng. Bot vì thế chỉ hiện đúng hai nút cần thiết.' }
         };
