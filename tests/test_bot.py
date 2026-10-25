@@ -3051,6 +3051,59 @@ class ArchiveTestCase(unittest.TestCase):
         self.assertEqual(len(audits), 1)
         self.assertIn("reason=published", audits[0]["detail"])
 
+    def test_archive_audit_detail_and_log_use_ict_time(self):
+        # TD-0024 correction (25/10): every time a user reads is
+        # Vietnam time. The files_archived/files_restored audit
+        # details and the log lines carry ICT; the audit row's
+        # created_at stays UTC (DB convention) and the detail's ICT
+        # wall time must match it + 7h.
+        task = self.make_task_with_files()
+        code = task["code"]
+        lines = []
+        result = archive.archive_task_files(
+            self.store, self.files_dir, code, reason="published",
+            uploader=self.fake_uploader, config_path=self.config_path,
+            log=lines.append)
+        self.assertEqual(result["status"], "done")
+        audits = [e for e in self.store.audit_entries("files_archived")
+                  if e["target_id"] == code]
+        self.assertEqual(len(audits), 1)
+        self._assert_ict_detail(audits[0])
+        self.assertTrue(lines, "archive run should log")
+        now_ict = datetime.now(timezone(timedelta(hours=7)))
+        for line in lines:
+            match = re.match(r"\[(\d{2})/(\d{2}) (\d{2}):(\d{2})\] ", line)
+            self.assertIsNotNone(match, line)
+            day, month, hh, mm = (int(g) for g in match.groups())
+            self.assertEqual((day, month), (now_ict.day, now_ict.month))
+            self.assertLess(abs((hh * 60 + mm)
+                                - (now_ict.hour * 60 + now_ict.minute)), 3)
+        # Restore writes the same ICT marker on its audit.
+        result = archive.restore_task_files(
+            self.store, self.files_dir, code,
+            downloader=self.fake_downloader)
+        self.assertEqual(result["status"], "done")
+        audits = [e for e in self.store.audit_entries("files_restored")
+                  if e["target_id"] == code]
+        self.assertEqual(len(audits), 1)
+        self._assert_ict_detail(audits[0])
+
+    def _assert_ict_detail(self, entry):
+        """The audit detail's 'lúc HH:MM DD/MM/YYYY' (ICT) matches
+        the row's UTC created_at + 7h."""
+        match = re.search(r"lúc (\d{2}):(\d{2}) (\d{2})/(\d{2})/(\d{4})",
+                          entry["detail"] or "")
+        self.assertIsNotNone(match, entry["detail"])
+        hh, mm, dd, mo, yyyy = (int(g) for g in match.groups())
+        created = datetime.fromisoformat(entry["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        ict = created.astimezone(timezone(timedelta(hours=7)))
+        self.assertEqual(
+            (ict.hour, ict.minute, ict.day, ict.month, ict.year),
+            (hh, mm, dd, mo, yyyy),
+            (entry["detail"], entry["created_at"]))
+
     def test_archive_skips_when_not_all_published(self):
         task = self.make_task_with_files()
         code = task["code"]

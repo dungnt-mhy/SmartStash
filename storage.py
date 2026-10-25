@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 STATUS_DRAFT = "DRAFT"
@@ -157,6 +157,38 @@ def _fb_col(row, name, default=None):
 
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+#: Vietnam time (Asia/Saigon, UTC+7, no DST) — the ONE definition.
+#: The webapp re-exports it (webapp/app.py: ICT); archive.py formats
+#: log/audit times with it. DB columns stay UTC; convert to ICT only
+#: at display/log boundaries (TD-0024 correction, 25/10/2026: every
+#: time a user reads is Vietnam time).
+ICT = timezone(timedelta(hours=7), name="ICT")
+
+
+def ict_now() -> datetime:
+    return datetime.now(ICT)
+
+
+def _as_ict(moment: datetime | None) -> datetime | None:
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ICT)
+
+
+def format_ict(moment: datetime | None) -> str:
+    """'HH:MM DD/MM/YYYY' in ICT for a datetime (naive = UTC)."""
+    ict = _as_ict(moment)
+    return "—" if ict is None else ict.strftime("%H:%M %d/%m/%Y")
+
+
+def format_ict_short(moment: datetime | None) -> str:
+    """'DD/MM HH:MM' in ICT — log-line prefix."""
+    ict = _as_ict(moment)
+    return "—" if ict is None else ict.strftime("%d/%m %H:%M")
 
 
 SCHEMA = """

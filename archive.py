@@ -39,7 +39,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from storage import STATUS_APPROVED_WAITING, STATUS_CANCELLED, STATUS_PENDING
+from storage import (STATUS_APPROVED_WAITING, STATUS_CANCELLED,
+                     STATUS_PENDING, format_ict, format_ict_short,
+                     ict_now)
 
 #: Google Drive CLI (the connected Drive account).
 DRIVE_CLI = "/opt/hatch/bin/hatch_gws_cli"
@@ -77,9 +79,11 @@ def _parse_ts(raw) -> datetime:
 
 
 def _log(message: str, log=None) -> None:
+    # TD-0024 correction (25/10): every time a user reads is Vietnam
+    # time — log lines carry an ICT timestamp, never a UTC one.
     if log is not None:
         try:
-            log(message)
+            log(f"[{format_ict_short(ict_now())}] {message}")
         except Exception:
             pass
 
@@ -342,11 +346,13 @@ def archive_task_files(store, files_dir, code: str, reason: str,
     if failed is not None:
         store.audit(None, AUDIT_ARCHIVE_FAILED, "task", code,
                     detail=f"reason={reason} file={failed['file']} "
-                           f"error={failed['error']}")
+                           f"error={failed['error']} "
+                           f"lúc {format_ict(ict_now())}")
         _log(f"[{code}] lưu trữ lỗi ở {failed['file']}: "
              f"{failed['error']}", log)
         return {"status": "failed", "files": done, "failed": failed}
-    detail = f"reason={reason} files={len(done)}"
+    detail = (f"reason={reason} files={len(done)} "
+              f"lúc {format_ict(ict_now())}")
     if delete_errors:
         detail += f" delete_errors={','.join(delete_errors)}"
     store.audit(None, AUDIT_ARCHIVED, "task", code, detail=detail)
@@ -402,12 +408,13 @@ def restore_task_files(store, files_dir, code: str, downloader=None,
     if failed is not None:
         store.audit(None, AUDIT_RESTORE_FAILED, "task", code,
                     detail=f"file={failed['file']} "
-                           f"error={failed['error']}")
+                           f"error={failed['error']} "
+                           f"lúc {format_ict(ict_now())}")
         _log(f"[{code}] khôi phục lỗi ở {failed['file']}: "
              f"{failed['error']}", log)
         return {"status": "failed", "files": done, "failed": failed}
     store.audit(None, AUDIT_RESTORED, "task", code,
-                detail=f"files={len(done)}")
+                detail=f"files={len(done)} lúc {format_ict(ict_now())}")
     _log(f"[{code}] đã tải lại {len(done)} file từ Drive.", log)
     return {"status": "done", "files": done}
 
